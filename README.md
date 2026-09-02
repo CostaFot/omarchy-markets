@@ -4,7 +4,7 @@ Stocks, crypto and currencies in the [Omarchy](https://omarchy.org) bar. A live 
 
 A port of the [Markets extension for Command Palette](https://github.com/CostaFot/MarketExtension) on Windows.
 
-> Work in progress. Version 0.6.0 has the bar strip and a panel with search, watchlist, favorites, a portfolio and a page per instrument with a 1D–5Y chart, with crypto priced through CoinGecko and stocks, indices and currencies through Yahoo Finance. No API keys. News comes later.
+> Work in progress. Version 0.7.0 has the bar strip and a panel with search, watchlist, favorites, a portfolio, a page per instrument with a 1D–5Y chart, a settings page and a data sources page, with crypto priced through CoinGecko and stocks, indices and currencies through Yahoo Finance. No API keys. News comes later.
 
 ## Install
 
@@ -29,16 +29,19 @@ The strip can show your portfolio instead, or as well: `strip: "portfolio"` is t
 
 ## The panel
 
-It opens on a hub: Search, Watchlist, Favorites, Portfolio, and the pages that are not built yet. Pages stack; Escape or Backspace walks back, Escape on the hub closes.
+It opens on a hub: Search, Watchlist, Favorites, Portfolio, Data sources and Settings (News comes later). Pages stack; Escape or Backspace walks back, Escape on the hub closes.
 
 - **Search** takes a symbol or a name and looks it up when you press Enter, never while you type. Results come from both providers, tagged Stock, Crypto or Currency, and say whether the row is already on your watchlist. Enter on a result opens it.
 - **Watchlist** lists what you track grouped into Stocks, Crypto and Currencies, priced. Type to filter by symbol or name; Tab moves from the box to the list for `j`/`k`, `/` goes back. The star on a row toggles the favorite.
 - **Favorites** is the same for the starred set, the one the bar strip shows.
 - **Portfolio** pins the totals first: what your holdings are worth, today's move, the total return where you recorded what you paid, and how many holdings could not be converted. Under it, one row per holding as `AAPL · 10 sh` with its value, today's P&L and total return. Holdings in other currencies are converted into your portfolio currency (USD unless you say otherwise) with the ECB's daily rates, shown as `£1,545.20 (≈$2,083.41)`.
+- **Data sources** says who prices what (Yahoo Finance for stocks, indices and currencies, CoinGecko for crypto, the ECB via Frankfurter for the portfolio's rates), what leaves your machine, the disclaimers, and the helper's version and state directory. Enter on a provider opens its site.
+- **Settings** edits the six settings below in the panel: the strip mode, whether it shows prices, how many entries, the refresh interval, the portfolio currency and the rate-limit banner. Save writes your shell.json entry once and the strip follows without a restart; Esc cancels.
 - **An instrument's page** shows the price and change, a chart over 1D, 1W, 1M, 1Y or 5Y with the move across that range under it, then Add or Remove for the watchlist and for favorites, labelled for its current state, then Add to portfolio, or Edit holding and Remove from portfolio once it is held. The holding form takes how much you hold and, if you like, the average price you paid per unit in the instrument's currency; Enter saves. The day chart of a stock or currency marks yesterday's close with a dashed line. A symbol you found through search is priced on the way in; Add appears once it has a price.
 
 ![An instrument's page](assets/detail-chart.png)
 ![The portfolio](assets/portfolio.png)
+![Settings](assets/settings.png)
 
 | Key | Does |
 |---|---|
@@ -49,6 +52,7 @@ It opens on a hub: Search, Watchlist, Favorites, Portfolio, and the pages that a
 | `←` / `→`, `h` / `l`, `1`–`5` | Chart range on an instrument's page |
 | `r` | Refresh now |
 | Enter, Tab | In the holding form: save, next field |
+| Enter, `h` / `l`, Tab | In Settings: edit the control, step it, next control; Enter on Save saves |
 | Esc, Backspace | Back; Esc on the hub closes |
 
 From a keybinding or a script:
@@ -56,7 +60,7 @@ From a keybinding or a script:
 ```bash
 omarchy-shell costafot.markets toggle              # also open, close, show, hide
 omarchy-shell costafot.markets refresh
-omarchy-shell costafot.markets page watchlist      # hub, search, watchlist, favorites, portfolio
+omarchy-shell costafot.markets page watchlist      # hub, search, watchlist, favorites, portfolio, sources, settings
 omarchy-shell costafot.markets add DOGE crypto     # stock, crypto or currency
 omarchy-shell costafot.markets favorite DOGE       # toggles; NEW:crypto for a symbol not yet tracked
 omarchy-shell costafot.markets status | jq         # what this bar shows: page, staleness, strip, chart
@@ -64,7 +68,7 @@ omarchy-shell costafot.markets status | jq         # what this bar shows: page, 
 
 ## Settings
 
-Inline on the plugin's entry in `~/.config/omarchy/shell.json`, or through `omarchy bar set`:
+The Settings page in the panel (hub → Settings) edits them; Save writes them inline on the plugin's entry in `~/.config/omarchy/shell.json` and the strip follows at once. `omarchy bar set costafot.markets stripMax 5 --json` or editing that entry by hand does the same:
 
 | Key | Default | Meaning |
 |---|---|---|

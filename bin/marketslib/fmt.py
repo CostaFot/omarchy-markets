@@ -5,6 +5,7 @@ and Models/UiCandleSeries.cs. Culture-invariant on purpose: the Windows
 extension formatted the same way regardless of locale, and so does this.
 """
 
+import os
 import time
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
@@ -224,6 +225,30 @@ def time_label(ts, range_label):
     except (TypeError, ValueError, OverflowError, OSError):
         return ""
     return time.strftime(TIME_LABEL_FORMATS.get(range_label, "%-d %b %Y"), t)
+
+
+def age_text(seconds):
+    """"12 s ago", "3 min ago", "2 h ago" — how old the newest quote is, for the Data sources page."""
+    if seconds is None:
+        return "no quotes fetched yet"
+    try:
+        s = max(0, int(seconds))
+    except (TypeError, ValueError, OverflowError):
+        return "no quotes fetched yet"
+    if s < 90:
+        return f"{s} s ago"
+    if s < 90 * 60:
+        return f"{s // 60} min ago"
+    return f"{s // 3600} h ago"
+
+
+def display_path(path, home=None):
+    """A path with the home directory shortened to ~, for display only."""
+    path = str(path or "")
+    home = home if home is not None else os.path.expanduser("~")
+    if home and home != "/" and (path == home or path.startswith(home.rstrip("/") + "/")):
+        return "~" + path[len(home.rstrip("/")):]
+    return path
 
 
 def chart_price_text(amount, currency, category):

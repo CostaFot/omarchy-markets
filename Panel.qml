@@ -12,7 +12,8 @@ import qs.Ui
 //
 // Page renderers build one flat `rows` array and a Repeater paints it; the
 // only widgets outside the list are the filter field the list pages start
-// with and the holding form (the one page that is a form, not a list).
+// with and the two forms (the holding editor and the settings page), which
+// are drawn instead of the list because a form must survive a poll landing.
 // While a field has focus the key catcher is blocked and the field forwards
 // Up/Down/Enter/Escape/Tab itself.
 Panel {
@@ -56,8 +57,11 @@ Panel {
   readonly property string page: current.page
   readonly property bool isHub: stack.length === 1
   readonly property bool hasField: page === "search" || page === "watchlist" || page === "favorites" || page === "portfolio"
-  // The holding editor: two fields and a Save, drawn instead of the list.
-  readonly property bool isForm: page === "holding"
+  // The forms, drawn instead of the list: the holding editor (two fields and
+  // a Save) and the settings page (the kit's controls and a Save).
+  readonly property bool isHoldingForm: page === "holding"
+  readonly property bool isSettingsForm: page === "settings"
+  readonly property bool isForm: isHoldingForm || isSettingsForm
 
   readonly property var pageTitles: ({
     hub: "Markets", search: "Search", watchlist: "Watchlist", favorites: "Favorites",
@@ -112,6 +116,10 @@ Panel {
       qtyField.text = pos ? pos.quantity_text : ""
       costField.text = pos ? pos.cost_basis_text : ""
       holdingError = ""
+    } else if (entry.page === "settings") {
+      loadPendingSettings()
+    } else if (entry.page === "sources") {
+      loadSourcesStatus()
     }
     Qt.callLater(function() {
       var wanted = entry.cursor
@@ -122,7 +130,7 @@ Panel {
   }
 
   function focusForPage() {
-    if (isForm) { qtyField.forceActiveFocus(); qtyField.selectAll() }
+    if (isHoldingForm) { qtyField.forceActiveFocus(); qtyField.selectAll() }
     else if (hasField) filterField.forceActiveFocus()
     else keyCatcher.forceActiveFocus()
   }
@@ -261,6 +269,250 @@ Panel {
     }
   }
 
+  // ---- Settings -----------------------------------------------------------
+  // The six scalar settings live inline on our shell.json entry. The page
+  // edits copies (`pending*`) and Save writes the keys that changed in one
+  // `updateEntryInline`, which the shell patches into the running widget in
+  // place (no remount, the panel stays open). Nothing here is read by the
+  // helper directly: Store.settingsJson carries the five it knows.
+  // The manifest's defaults, repeated: QML cannot read manifest.json cheaply
+  // (tests/test_manifest.py pins the two copies together).
+  readonly property var settingsDefaults: ({ strip: "favorites", stripShowPrice: true, stripMax: 6, refreshMinutes: 10, portfolioCurrency: "USD", showRateLimitErrors: true })
+  readonly property var stripOptions: [
+    { value: "favorites", label: "Favorites" },
+    { value: "watchlist", label: "Watchlist" },
+    { value: "portfolio", label: "Portfolio total" },
+    { value: "favorites+portfolio", label: "Portfolio total, then favorites" }
+  ]
+  // The codes fmt.py prints and the ECB converts, in the manifest's order.
+  readonly property var currencyOptions: [
+    { value: "USD", label: "US Dollar (USD)" },
+    { value: "EUR", label: "Euro (EUR)" },
+    { value: "GBP", label: "British Pound (GBP)" },
+    { value: "JPY", label: "Japanese Yen (JPY)" },
+    { value: "CHF", label: "Swiss Franc (CHF)" },
+    { value: "AUD", label: "Australian Dollar (AUD)" },
+    { value: "CAD", label: "Canadian Dollar (CAD)" },
+    { value: "NZD", label: "New Zealand Dollar (NZD)" },
+    { value: "CNY", label: "Chinese Yuan (CNY)" },
+    { value: "HKD", label: "Hong Kong Dollar (HKD)" },
+    { value: "SGD", label: "Singapore Dollar (SGD)" },
+    { value: "SEK", label: "Swedish Krona (SEK)" },
+    { value: "NOK", label: "Norwegian Krone (NOK)" },
+    { value: "DKK", label: "Danish Krone (DKK)" },
+    { value: "PLN", label: "Polish Złoty (PLN)" },
+    { value: "ZAR", label: "South African Rand (ZAR)" },
+    { value: "MXN", label: "Mexican Peso (MXN)" },
+    { value: "INR", label: "Indian Rupee (INR)" },
+    { value: "BRL", label: "Brazilian Real (BRL)" },
+    { value: "KRW", label: "South Korean Won (KRW)" }
+  ]
+  property string pendingStrip: "favorites"
+  property bool pendingStripShowPrice: true
+  property int pendingStripMax: 6
+  property int pendingRefreshMinutes: 10
+  property string pendingPortfolioCurrency: "USD"
+  property bool pendingShowRateLimitErrors: true
+  // The keyboard cursor over the form's controls, in `formControls` order.
+  property int formCursor: 0
+
+  function settingValue(key) { return store.setting(key, settingsDefaults[key]) }
+
+  function optionLabel(options, value) {
+    for (var i = 0; i < options.length; i++) if (options[i].value === value) return options[i].label
+    return String(value)
+  }
+
+  function clampInt(v, lo, hi, fallback) {
+    var n = Math.round(Number(v))
+    return isFinite(n) ? Math.min(hi, Math.max(lo, n)) : fallback
+  }
+
+  function cycleOption(options, value, delta) {
+    var at = -1
+    for (var i = 0; i < options.length; i++) if (options[i].value === value) { at = i; break }
+    return options[(at + delta + options.length) % options.length].value
+  }
+
+  // The pending values start as what is saved, or the manifest's default.
+  function loadPendingSettings() {
+    pendingStrip = String(settingValue("strip"))
+    pendingStripShowPrice = settingValue("stripShowPrice") !== false
+    pendingStripMax = clampInt(settingValue("stripMax"), 1, 12, 6)
+    pendingRefreshMinutes = clampInt(settingValue("refreshMinutes"), 0, 120, 10)
+    pendingPortfolioCurrency = String(settingValue("portfolioCurrency")).toUpperCase()
+    pendingShowRateLimitErrors = settingValue("showRateLimitErrors") !== false
+    formCursor = 0
+    settingsScroll.contentY = 0
+  }
+
+  // The clock panel's pattern: merge over the entry, apply locally first so
+  // the strip and this panel react now, then one atomic shell.json write.
+  // `updateEntryInline` replaces the whole entry, hence the merge. Returns
+  // whether anything was written (a widget outside the bar layout cannot).
+  function persistSettings(values) {
+    var entry = { id: moduleName }
+    var current = root.settings || ({})
+    for (var k in current) if (k !== "id") entry[k] = current[k]
+    for (var key in values) entry[key] = values[key]
+    root.settings = entry
+    if (hostWidget && "settings" in hostWidget) hostWidget.settings = entry
+    if (bar && bar.shell && typeof bar.shell.updateEntryInline === "function") {
+      bar.shell.updateEntryInline(moduleName, entry)
+      return true
+    }
+    return false
+  }
+
+  function saveSettings() {
+    if (!isSettingsForm) return
+    keyCatcher.forceActiveFocus()  // a number editor commits on focus loss; read the pending values after
+    var next = { strip: pendingStrip, stripShowPrice: pendingStripShowPrice, stripMax: pendingStripMax,
+                 refreshMinutes: pendingRefreshMinutes, portfolioCurrency: pendingPortfolioCurrency,
+                 showRateLimitErrors: pendingShowRateLimitErrors }
+    var changed = {}
+    var any = false
+    for (var key in next) if (next[key] !== settingValue(key)) { changed[key] = next[key]; any = true }
+    if (!any) { pop(); return }
+    var written = persistSettings(changed)
+    showNotice(written ? "Settings saved" : "Settings kept for this session only: the widget is not in the bar layout", !written)
+    pop()
+  }
+
+  readonly property var formControls: [stripDropdown, showPriceToggle, stripMaxField, refreshField,
+                                       currencyDropdown, rateLimitToggle, saveButton, cancelButton]
+
+  function moveFormCursor(delta) {
+    var n = formControls.length
+    formCursor = (formCursor + delta + n) % n
+    ensureFormCursorVisible()
+  }
+
+  function ensureFormCursorVisible() {
+    var item = formControls[formCursor]
+    if (!item) return
+    var top = item.mapToItem(settingsForm, 0, 0).y
+    var bottom = top + item.height
+    if (top < settingsScroll.contentY) settingsScroll.contentY = top
+    else if (bottom > settingsScroll.contentY + settingsScroll.height)
+      settingsScroll.contentY = Math.max(0, bottom - settingsScroll.height)
+  }
+
+  // h/l and the arrows: cycle a dropdown, step a number, flip a toggle.
+  function stepFormControl(dx) {
+    var c = formControls[formCursor]
+    if (c === stripDropdown) pendingStrip = cycleOption(stripOptions, pendingStrip, dx)
+    else if (c === currencyDropdown) pendingPortfolioCurrency = cycleOption(currencyOptions, pendingPortfolioCurrency, dx)
+    else if (c === stripMaxField) pendingStripMax = clampInt(pendingStripMax + dx * c.stepSize, c.from, c.to, pendingStripMax)
+    else if (c === refreshField) pendingRefreshMinutes = clampInt(pendingRefreshMinutes + dx * c.stepSize, c.from, c.to, pendingRefreshMinutes)
+    else if (c === showPriceToggle) pendingStripShowPrice = !pendingStripShowPrice
+    else if (c === rateLimitToggle) pendingShowRateLimitErrors = !pendingShowRateLimitErrors
+  }
+
+  // Enter and Space: a toggle flips, a dropdown opens, a number field hands
+  // the keys to its editor, the buttons act.
+  function activateFormControl() {
+    var c = formControls[formCursor]
+    if (c === stripDropdown || c === currencyDropdown) c.open()
+    else if (c === showPriceToggle) pendingStripShowPrice = !pendingStripShowPrice
+    else if (c === rateLimitToggle) pendingShowRateLimitErrors = !pendingShowRateLimitErrors
+    else if (c === stripMaxField || c === refreshField) { c.field.contentItem.forceActiveFocus(); c.field.contentItem.selectAll() }
+    else if (c === saveButton) saveSettings()
+    else if (c === cancelButton) pop()
+  }
+
+  // The two numbers as they were when an editor took the keys, for Escape.
+  property var numberEditorStart: ({ stripMax: 6, refreshMinutes: 10 })
+
+  // Keys that reach a NumberField while its editor has them: Enter commits
+  // (the SpinBox already did) and returns to the catcher, Escape drops the
+  // typed text, Tab leaves for the next control. Digits never get here.
+  function numberEditorKey(event, nf) {
+    if (!(nf.field.activeFocus || nf.field.contentItem.activeFocus)) return
+    if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+      keyCatcher.forceActiveFocus()
+      event.accepted = true
+    } else if (event.key === Qt.Key_Escape) {
+      // Leaving the editor commits the typed text (the SpinBox's display
+      // text already tracks it); put the value from before back afterwards.
+      var start = numberEditorStart
+      var restore = function() {
+        root.pendingStripMax = start.stripMax
+        root.pendingRefreshMinutes = start.refreshMinutes
+      }
+      keyCatcher.forceActiveFocus()
+      restore()
+      Qt.callLater(restore)
+      event.accepted = true
+    } else if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
+      keyCatcher.forceActiveFocus()
+      moveFormCursor(event.key === Qt.Key_Tab ? 1 : -1)
+      event.accepted = true
+    }
+  }
+
+  // True while a settings control owns the keyboard: a dropdown's popup
+  // (it lives in the window overlay) or a number field's editor. On the
+  // falling edge the catcher takes the keys back: Qt hands focus to the
+  // dropdown's trigger when its popup closes, not to us.
+  readonly property bool settingsKeysOwned: stripDropdown.popupOpen || currencyDropdown.popupOpen
+    || stripMaxField.field.activeFocus || stripMaxField.field.contentItem.activeFocus
+    || refreshField.field.activeFocus || refreshField.field.contentItem.activeFocus
+  onSettingsKeysOwnedChanged: {
+    if (settingsKeysOwned) {
+      numberEditorStart = { stripMax: pendingStripMax, refreshMinutes: pendingRefreshMinutes }
+    } else Qt.callLater(function() {
+      if (root.opened && root.isSettingsForm && !root.settingsKeysOwned) keyCatcher.forceActiveFocus()
+    })
+  }
+
+  // ---- Data sources -------------------------------------------------------
+  // The provider roster and the disclaimers are static; the last section is
+  // the helper's `status` answer, fetched when the page is entered.
+  property var sourcesStatus: null
+
+  function loadSourcesStatus() {
+    sourcesStatus = null
+    store.run(["status"], function(doc) {
+      if (root.page === "sources") root.sourcesStatus = doc || ({ error: { message: root.store.errorText || "No answer from the helper" } })
+    })
+  }
+
+  function sourcesRows() {
+    var out = [
+      { type: "header", label: "Stocks, indices and currencies" },
+      { type: "note", label: "Yahoo Finance",
+        detail: "No key or account. An unofficial endpoint: prices are delayed, Yahoo publishes no terms for it and can change or block it without notice." },
+      { type: "attribution", label: "Data by Yahoo Finance", url: "https://finance.yahoo.com" },
+      { type: "sep" },
+      { type: "header", label: "Crypto" },
+      { type: "note", label: "CoinGecko", detail: "Public API, no key or account. Chart history is capped at one year." },
+      { type: "attribution", label: "Data by CoinGecko", url: "https://www.coingecko.com" },
+      { type: "sep" },
+      { type: "header", label: "Portfolio rates" },
+      { type: "note", label: "Frankfurter (ECB)",
+        detail: "The European Central Bank's daily reference rates, fetched at most once an hour and only when a holding is priced in another currency than the portfolio's." },
+      { type: "attribution", label: "Rates by Frankfurter (ECB)", url: "https://frankfurter.dev" },
+      { type: "sep" },
+      { type: "header", label: "What leaves your machine" },
+      { type: "note", label: "The symbols you track go to those three hosts and nowhere else.",
+        detail: "No server in between, no account, no telemetry. Quantities never leave the machine. Answers are cached briefly: quotes for the poll interval, charts for five minutes, rates for an hour." },
+      { type: "sep" },
+      { type: "header", label: "Please note" },
+      { type: "note", label: "Not financial advice.", detail: "Prices are delayed and best effort. Do not trade on them." },
+      { type: "note", label: "Not affiliated.", detail: "This plugin is not affiliated with Yahoo, CoinGecko or the ECB." },
+      { type: "sep" },
+      { type: "header", label: "This install" }
+    ]
+    var st = sourcesStatus
+    if (!st) out.push({ type: "note", label: "Checking the helper…" })
+    else if (st.error && st.error.message) out.push({ type: "note", label: st.error.message, urgent: true })
+    else out.push({ type: "note", label: "Markets " + (st.version || "?") + " · Python " + (st.python || "?"),
+                    detail: "State in " + (st.state_dir_text || st.state_dir || "?") + " · quotes fetched "
+                            + (st.cache && st.cache.quotes_age_text ? st.cache.quotes_age_text : "?") })
+    return out
+  }
+
   // ---- Membership ---------------------------------------------------------
   // Mutations stay on the page; the helper answers with the new membership
   // and strip, the store merges them, the rows re-render in place. A short
@@ -326,7 +578,7 @@ Panel {
   }
 
   function saveHolding() {
-    if (!isForm) return
+    if (!isHoldingForm) return
     var e = current
     var qty = parseAmount(qtyField.text)
     if (qty === null || isNaN(qty) || qty <= 0) {
@@ -349,7 +601,7 @@ Panel {
       if (!doc) { root.holdingError = root.store.errorText || "No answer from the helper"; return }
       if (doc.error && doc.error.message) { root.holdingError = doc.error.message; return }
       root.showNotice(doc.notice || ("Saved " + sym), false)
-      if (root.isForm && root.current.symbol === sym) root.pop()
+      if (root.isHoldingForm && root.current.symbol === sym) root.pop()
     })
   }
 
@@ -408,6 +660,11 @@ Panel {
     }
   }
 
+  function settingsDetail() {
+    var every = store.refreshMinutes > 0 ? "every " + store.refreshMinutes + " min" : "polling off"
+    return optionLabel(stripOptions, String(settingValue("strip"))) + " · " + every
+  }
+
   function hubRows() {
     var s = root.store
     var counts = { watchlist: 0, favorites: s.favorites.length }
@@ -423,7 +680,7 @@ Panel {
       { type: "action", icon: "\uf19c", label: "Portfolio", detail: pfDetail, page: "portfolio" },
       { type: "action", icon: "", label: "News", detail: "Coming in a later version", page: "news", muted: true },
       { type: "action", icon: "", label: "Data sources", detail: "Who prices what", page: "sources" },
-      { type: "action", icon: "", label: "Settings", detail: "Coming in a later version", page: "settings", muted: true }
+      { type: "action", icon: "", label: "Settings", detail: settingsDetail(), page: "settings" }
     ]
   }
 
@@ -609,27 +866,11 @@ Panel {
       out.push({ type: "action", icon: "\uf19c", label: "Add to portfolio", detail: "How much you hold and, if you like, what you paid",
                  action: "holding", symbol: e.symbol, category: category, name: name })
     }
-    if (notice !== "") {
-      out.push({ type: "sep" })
-      out.push({ type: "note", label: notice, urgent: noticeUrgent })
-    }
     return out
   }
 
   function soonRows() {
-    var out = []
-    if (page === "sources") {
-      out.push({ type: "note", label: "Stocks, indices and currencies", detail: "Yahoo Finance, no key. Unofficial and delayed; see the README." })
-      out.push({ type: "note", label: "Crypto", detail: "CoinGecko, no key." })
-      out.push({ type: "sep" })
-      out.push({ type: "note", label: "Keys for other providers and this page's real form come in a later version." })
-    } else if (page === "settings") {
-      out.push({ type: "note", label: "The settings page comes in a later version.",
-                 detail: "Until then: omarchy bar set, or the costafot.markets entry in ~/.config/omarchy/shell.json." })
-    } else {
-      out.push({ type: "note", label: pageTitles[page] + " comes in a later version." })
-    }
-    return out
+    return [{ type: "note", label: pageTitles[page] + " comes in a later version." }]
   }
 
   readonly property var rows: {
@@ -647,8 +888,15 @@ Panel {
     else if (page === "portfolio") body = portfolioRows()
     else if (page === "search") body = searchRows()
     else if (page === "detail") body = detailRows()
+    else if (page === "sources") body = sourcesRows()
     else body = soonRows()
     out = out.concat(body)
+    // What the last action did, on whichever page it left us on ("Settings
+    // saved" lands on the hub, a membership flip stays on the detail page).
+    if (notice !== "") {
+      out.push({ type: "sep" })
+      out.push({ type: "note", label: notice, urgent: noticeUrgent })
+    }
 
     var status = s.statusRows
     var errorText = s.errorText
@@ -659,7 +907,9 @@ Panel {
       if (errorText !== "")
         out.push({ type: "note", label: errorText, urgent: true })
     }
-    if (page !== "search") {
+    // Data sources credits every provider itself; the search page is a
+    // provider's answer to a query, not a snapshot.
+    if (page !== "search" && page !== "sources") {
       var attribution = s.attribution
       if (attribution.length > 0 || s.generatedAt > 0) {
         out.push({ type: "sep" })
@@ -683,6 +933,8 @@ Panel {
     if (page === "search") return "Enter searches, then opens · Tab to the list · Esc back"
     if (hasField) return "Type to filter · ↑/↓ move · Enter opens · Esc back"
     if (page === "detail") return "←/→ or 1–5 range · Enter applies · r refreshes · Esc back"
+    if (page === "settings") return "j/k or Tab move · Enter edits · h/l adjust · Enter on Save · Esc cancels"
+    if (page === "sources") return "j/k move · Enter opens the provider's site · Esc back"
     return "Esc or Backspace back"
   }
 
@@ -794,11 +1046,12 @@ Panel {
     owner: root.barIdentity
     bar: root.bar
     open: root.opened
-    focusTarget: root.isForm ? qtyField : (root.hasField ? filterField : keyCatcher)
+    focusTarget: root.isHoldingForm ? qtyField : (root.hasField ? filterField : keyCatcher)
     contentWidth: panel.fittedContentWidth(Style.space(380))
     contentHeight: panel.fittedContentHeight(
-      root.isForm ? holdingForm.implicitHeight + Style.space(12)
-                  : contentColumn.implicitHeight + (root.hasField ? filterField.height + Style.space(6) : 0),
+      root.isHoldingForm ? holdingForm.implicitHeight + Style.space(12)
+      : root.isSettingsForm ? settingsForm.implicitHeight + Style.space(12)
+      : contentColumn.implicitHeight + (root.hasField ? filterField.height + Style.space(6) : 0),
       Style.space(760))
 
     // Unhandled keys from the catcher (it never accepts Backspace) land here.
@@ -817,14 +1070,24 @@ Panel {
         id: keyCatcher
         anchors.fill: parent
         clip: true
-        blocked: filterField.activeFocus || qtyField.activeFocus || costField.activeFocus
+        blocked: filterField.activeFocus || qtyField.activeFocus || costField.activeFocus || root.settingsKeysOwned
         onMoveRequested: function(dx, dy) {
-          if (dy !== 0) root.moveCursor(dy)
+          if (root.isSettingsForm) {
+            if (dy !== 0) root.moveFormCursor(dy)
+            else if (dx !== 0) root.stepFormControl(dx)
+          } else if (dy !== 0) root.moveCursor(dy)
           else if (dx !== 0 && root.page === "detail") root.stepRange(dx)
         }
-        onActivateRequested: root.activate(root.rows[root.selectedIndex])
+        onActivateRequested: {
+          if (root.isSettingsForm) root.activateFormControl()
+          else root.activate(root.rows[root.selectedIndex])
+        }
         onCloseRequested: root.pop()
-        onTabRequested: function(direction) { root.switchPanel(direction) }
+        // Tab walks the settings form; elsewhere it switches bar panels.
+        onTabRequested: function(direction) {
+          if (root.isSettingsForm) root.moveFormCursor(direction)
+          else root.switchPanel(direction)
+        }
         onTextKey: function(t) {
           if (t === "r" || t === "R") root.refresh()
           else if (t === "/" && root.hasField) filterField.forceActiveFocus()
@@ -880,7 +1143,7 @@ Panel {
           // fields hold what the user types until Save sends it.
           Column {
             id: holdingForm
-            visible: root.isForm
+            visible: root.isHoldingForm
             anchors.top: parent.top
             anchors.left: parent.left
             anchors.right: parent.right
@@ -888,12 +1151,12 @@ Panel {
             anchors.rightMargin: Style.space(8)
             spacing: Style.space(6)
 
-            readonly property string symbol: root.isForm ? root.current.symbol : ""
-            readonly property var quote: root.isForm ? root.store.quoteFor(symbol) : null
-            readonly property var position: root.isForm ? root.store.positionFor(symbol) : null
-            readonly property var instrument: root.isForm ? root.instrumentFor(symbol) : null
+            readonly property string symbol: root.isHoldingForm ? root.current.symbol : ""
+            readonly property var quote: root.isHoldingForm ? root.store.quoteFor(symbol) : null
+            readonly property var position: root.isHoldingForm ? root.store.positionFor(symbol) : null
+            readonly property var instrument: root.isHoldingForm ? root.instrumentFor(symbol) : null
             readonly property string currency: quote && quote.valid && quote.currency ? quote.currency : ""
-            readonly property string category: instrument ? instrument.category : (root.isForm ? root.current.category : "stock")
+            readonly property string category: instrument ? instrument.category : (root.isHoldingForm ? root.current.category : "stock")
 
             // ‹ Edit holding — clicking it goes back, like the list titles.
             Item {
@@ -937,7 +1200,7 @@ Panel {
               width: parent.width
               textFormat: Text.PlainText
               text: holdingForm.symbol + " · " + (holdingForm.instrument ? holdingForm.instrument.name
-                    : (holdingForm.quote && holdingForm.quote.name ? holdingForm.quote.name : (root.isForm ? root.current.name : "")))
+                    : (holdingForm.quote && holdingForm.quote.name ? holdingForm.quote.name : (root.isHoldingForm ? root.current.name : "")))
               color: root.contentForeground
               font.family: root.contentFontFamily
               font.pixelSize: Style.font.body
@@ -1047,6 +1310,221 @@ Panel {
               font.family: root.contentFontFamily
               font.pixelSize: Style.font.caption
               elide: Text.ElideRight
+            }
+          }
+
+          // The settings page. Outside the row Repeater for the same reason
+          // as the holding form: a poll landing must not reset a half-edited
+          // control. The kit's controls paint themselves; the keyboard cursor
+          // (`formCursor`) is ours, driven from the key catcher, and the
+          // pending values are the single source of truth for every control
+          // (the dropdowns write their own `value`, hence the Binding items).
+          Flickable {
+            id: settingsScroll
+            visible: root.isSettingsForm
+            anchors.fill: parent
+            anchors.leftMargin: Style.space(8)
+            anchors.rightMargin: Style.space(8)
+            contentWidth: width
+            contentHeight: settingsForm.implicitHeight
+            // No clip of its own: the key catcher clips at the card's edge, and
+            // a clip here ate the controls' one-pixel left border (the
+            // Flickable's edge lands on a fractional pixel; seen 2026-09-03).
+            boundsBehavior: Flickable.StopAtBounds
+            interactive: contentHeight > height
+
+            Column {
+              id: settingsForm
+              width: settingsScroll.width
+              spacing: Style.space(10)
+
+              // ‹ Settings — clicking it backs out, like the list titles.
+              Item {
+                width: parent.width
+                height: Style.space(30)
+
+                Row {
+                  anchors.fill: parent
+                  spacing: Style.space(8)
+
+                  Text {
+                    height: parent.height
+                    textFormat: Text.PlainText
+                    text: "‹"
+                    color: root.mutedForeground
+                    font.family: root.contentFontFamily
+                    font.pixelSize: Style.font.title
+                    verticalAlignment: Text.AlignVCenter
+                  }
+
+                  Text {
+                    height: parent.height
+                    textFormat: Text.PlainText
+                    text: "Settings"
+                    color: root.contentForeground
+                    font.family: root.contentFontFamily
+                    font.pixelSize: Style.font.title
+                    font.bold: true
+                    verticalAlignment: Text.AlignVCenter
+                  }
+                }
+
+                MouseArea {
+                  anchors.fill: parent
+                  cursorShape: Qt.PointingHandCursor
+                  onClicked: root.pop()
+                }
+              }
+
+              Text {
+                width: parent.width
+                textFormat: Text.PlainText
+                text: "Saved on the plugin's entry in shell.json; the strip follows at once."
+                color: root.mutedForeground
+                font.family: root.contentFontFamily
+                font.pixelSize: Style.font.caption
+                wrapMode: Text.Wrap
+              }
+
+              Dropdown {
+                id: stripDropdown
+                width: parent.width
+                label: "Strip shows"
+                options: root.stripOptions
+                foreground: root.contentForeground
+                fontFamily: root.contentFontFamily
+                hasCursor: root.formCursor === 0
+                onHovered: function(on) { if (on) root.formCursor = 0 }
+                onChanged: function(v) { root.pendingStrip = v }
+              }
+              Binding { target: stripDropdown; property: "value"; value: root.pendingStrip }
+
+              Toggle {
+                id: showPriceToggle
+                width: parent.width
+                label: "Show price in strip"
+                description: "Off shows only the change percentage."
+                checked: root.pendingStripShowPrice
+                foreground: root.contentForeground
+                fontFamily: root.contentFontFamily
+                activeFocusOnTab: false
+                hasCursor: root.formCursor === 1
+                onHovered: function(on) { if (on) root.formCursor = 1 }
+                onClicked: { root.formCursor = 1; root.pendingStripShowPrice = !root.pendingStripShowPrice }
+              }
+
+              NumberField {
+                id: stripMaxField
+                label: "Strip entries"
+                from: 1; to: 12
+                stepSize: 1
+                value: root.pendingStripMax
+                foreground: root.contentForeground
+                fontFamily: root.contentFontFamily
+                hasCursor: root.formCursor === 2
+                onModified: function(v) { root.pendingStripMax = v }
+                onHovered: function(on) { if (on) root.formCursor = 2 }
+                Keys.onPressed: function(event) { root.numberEditorKey(event, stripMaxField) }
+              }
+
+              NumberField {
+                id: refreshField
+                label: "Price refresh interval (minutes)"
+                from: 0; to: 120
+                stepSize: 1
+                value: root.pendingRefreshMinutes
+                foreground: root.contentForeground
+                fontFamily: root.contentFontFamily
+                hasCursor: root.formCursor === 3
+                onModified: function(v) { root.pendingRefreshMinutes = v }
+                onHovered: function(on) { if (on) root.formCursor = 3 }
+                Keys.onPressed: function(event) { root.numberEditorKey(event, refreshField) }
+              }
+
+              Text {
+                width: parent.width
+                textFormat: Text.PlainText
+                text: "0 = off; the panel still refreshes when opened."
+                color: root.mutedForeground
+                font.family: root.contentFontFamily
+                font.pixelSize: Style.font.caption
+                wrapMode: Text.Wrap
+              }
+
+              SearchableDropdown {
+                id: currencyDropdown
+                width: parent.width
+                label: "Portfolio currency"
+                placeholderText: "Search currencies"
+                options: root.currencyOptions
+                foreground: root.contentForeground
+                fontFamily: root.contentFontFamily
+                hasCursor: root.formCursor === 4
+                onHovered: function(on) { if (on) root.formCursor = 4 }
+                onChanged: function(v) { root.pendingPortfolioCurrency = v }
+              }
+              Binding { target: currencyDropdown; property: "value"; value: root.pendingPortfolioCurrency }
+
+              Text {
+                width: parent.width
+                textFormat: Text.PlainText
+                text: "Currency for portfolio totals. Other holdings are converted into it with ECB rates."
+                color: root.mutedForeground
+                font.family: root.contentFontFamily
+                font.pixelSize: Style.font.caption
+                wrapMode: Text.Wrap
+              }
+
+              Toggle {
+                id: rateLimitToggle
+                width: parent.width
+                label: "Show rate-limit warnings"
+                description: "Show a banner when prices are stale from provider rate-limiting."
+                checked: root.pendingShowRateLimitErrors
+                foreground: root.contentForeground
+                fontFamily: root.contentFontFamily
+                activeFocusOnTab: false
+                hasCursor: root.formCursor === 5
+                onHovered: function(on) { if (on) root.formCursor = 5 }
+                onClicked: { root.formCursor = 5; root.pendingShowRateLimitErrors = !root.pendingShowRateLimitErrors }
+              }
+
+              Item { width: 1; height: Style.space(2) }
+
+              Row {
+                spacing: Style.space(8)
+
+                Button {
+                  id: saveButton
+                  text: "Save"
+                  bordered: true
+                  foreground: root.contentForeground
+                  fontFamily: root.contentFontFamily
+                  hasCursor: root.formCursor === 6
+                  onHovered: function(on) { if (on) root.formCursor = 6 }
+                  onClicked: root.saveSettings()
+                }
+
+                Button {
+                  id: cancelButton
+                  text: "Cancel"
+                  foreground: root.mutedForeground
+                  fontFamily: root.contentFontFamily
+                  hasCursor: root.formCursor === 7
+                  onHovered: function(on) { if (on) root.formCursor = 7 }
+                  onClicked: root.pop()
+                }
+              }
+
+              Text {
+                width: parent.width
+                textFormat: Text.PlainText
+                text: root.keyHint()
+                color: root.mutedForeground
+                font.family: root.contentFontFamily
+                font.pixelSize: Style.font.caption
+                wrapMode: Text.Wrap
+              }
             }
           }
 

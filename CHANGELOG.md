@@ -1,7 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.7.0
 
+- The Settings page: the strip mode, whether the strip shows prices, how many entries it lists, the refresh interval, the portfolio currency (searchable, twenty ECB currencies) and the rate-limit banner, edited with the shell's own controls. `j`/`k` or Tab move between them, Enter edits, `h`/`l` steps or cycles, Enter on Save writes the keys that changed to the plugin's shell.json entry in one atomic write, Esc cancels. The shell patches a settings-only write into the running widget in place, so the panel stays open and the strip repaints without a restart. The hub's Settings row shows the strip mode and the interval.
+- The Data sources page: who prices what and the link to each provider, what leaves your machine, the disclaimers, and the helper's version, Python version, state directory and the age of the newest quote, fetched when the page opens.
+- Helper: `status` carries `state_dir_text` (home shortened to `~`) and `cache.quotes_age_text` (`12 s ago`, `5 min ago`), so the panel formats nothing. The manifest's schema is in the page's order, with the Windows labels. A new test ties the manifest to the code: its defaults are the helper's, its currency options are the codes `fmt.py` prints, its strip options are the modes the helper builds, and `Panel.qml` repeats the same defaults and offers every option.
 - Demo mode is dropped before it was ever built: the keyless providers made it pointless and a toggle that paints invented prices in a finance widget is a footgun. The stubs go with it: the envelope's `demo` field, the `demoMode` setting (now an ignored key), the provider `is_exclusive` flag and Frankfurter's built-in rate table. `status` no longer reports `active` per provider, which was always true.
 
 ## 0.6.0

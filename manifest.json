@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "costafot.markets",
   "name": "Markets",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "author": "CostaFot",
   "license": "MIT",
   "description": "Stocks, crypto and currencies in the bar: a live ticker strip plus a keyboard-driven panel with search, watchlist, favorites, portfolio, news and charts.",
@@ -25,24 +25,14 @@
     "allowMultiple": false,
     "defaultSection": "right",
     "defaults": {
-      "refreshMinutes": 10,
       "strip": "favorites",
       "stripShowPrice": true,
       "stripMax": 6,
-      "showRateLimitErrors": true,
-      "portfolioCurrency": "USD"
+      "refreshMinutes": 10,
+      "portfolioCurrency": "USD",
+      "showRateLimitErrors": true
     },
     "schema": [
-      {
-        "key": "refreshMinutes",
-        "type": "integer",
-        "label": "Refresh every (minutes)",
-        "description": "0 turns polling off; the panel still refreshes when opened.",
-        "min": 0,
-        "max": 120,
-        "step": 1,
-        "defaultValue": 10
-      },
       {
         "key": "strip",
         "type": "enum",
@@ -64,10 +54,30 @@
         "defaultValue": true
       },
       {
+        "key": "stripMax",
+        "type": "integer",
+        "label": "Strip entries",
+        "description": "Most entries the strip lists before trimming for width.",
+        "min": 1,
+        "max": 12,
+        "step": 1,
+        "defaultValue": 6
+      },
+      {
+        "key": "refreshMinutes",
+        "type": "integer",
+        "label": "Price refresh interval (minutes)",
+        "description": "0 = off; the panel still refreshes when opened.",
+        "min": 0,
+        "max": 120,
+        "step": 1,
+        "defaultValue": 10
+      },
+      {
         "key": "portfolioCurrency",
         "type": "enum",
         "label": "Portfolio currency",
-        "description": "Currency for the portfolio totals. Other holdings are converted into it with ECB rates.",
+        "description": "Currency for portfolio totals. Other holdings are converted into it with ECB rates.",
         "options": [
           "USD",
           "EUR",
@@ -93,20 +103,10 @@
         "defaultValue": "USD"
       },
       {
-        "key": "stripMax",
-        "type": "integer",
-        "label": "Strip entries",
-        "description": "Most entries the strip lists before trimming for width.",
-        "min": 1,
-        "max": 12,
-        "step": 1,
-        "defaultValue": 6
-      },
-      {
         "key": "showRateLimitErrors",
         "type": "boolean",
-        "label": "Show rate-limit notices",
-        "description": "Off hides the provider's rate-limit line in the panel.",
+        "label": "Show rate-limit warnings",
+        "description": "Show a banner when prices are stale from provider rate-limiting.",
         "defaultValue": true
       }
     ]

@@ -131,12 +131,16 @@ def cmd_status(repo, args, now):
         "version": plugin_version(),
         "python": sys.version.split()[0],
         "state_dir": repo.dir,
+        "state_dir_text": fmt.display_path(repo.dir),
         "providers": providers,
         "tracked": len(tracked),
         "favorites": len(repo.watchlist.favorites()),
         "holdings": len(repo.portfolio.positions()),
         "portfolio_currency": str(repo.settings.get("portfolioCurrency") or "USD").upper(),
-        "cache": {"quotes_age_s": max(ages) if ages else None},
+        "cache": {
+            "quotes_age_s": max(ages) if ages else None,
+            "quotes_age_text": fmt.age_text(max(ages) if ages else None),
+        },
     }
 
 

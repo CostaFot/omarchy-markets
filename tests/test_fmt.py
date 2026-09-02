@@ -146,6 +146,19 @@ class ChartLabels(unittest.TestCase):
         self.assertEqual(fmt.time_label(ts, "5Y"), "Sep 2026")
         self.assertEqual(fmt.time_label("garbage", "1D"), "")
 
+    def test_age_text_and_display_path_for_the_data_sources_page(self):
+        self.assertEqual(fmt.age_text(None), "no quotes fetched yet")
+        self.assertEqual(fmt.age_text("x"), "no quotes fetched yet")
+        self.assertEqual(fmt.age_text(0), "0 s ago")
+        self.assertEqual(fmt.age_text(89), "89 s ago")
+        self.assertEqual(fmt.age_text(90), "1 min ago")
+        self.assertEqual(fmt.age_text(345), "5 min ago")
+        self.assertEqual(fmt.age_text(3 * 3600), "3 h ago")
+        self.assertEqual(fmt.display_path("/home/c/.local/state/x", home="/home/c"), "~/.local/state/x")
+        self.assertEqual(fmt.display_path("/home/c", home="/home/c"), "~")
+        self.assertEqual(fmt.display_path("/home/cx/y", home="/home/c"), "/home/cx/y")
+        self.assertEqual(fmt.display_path("/tmp/z", home="/"), "/tmp/z")
+
     def test_chart_price_text_rates_versus_money(self):
         self.assertEqual(fmt.chart_price_text(1.08765, "USD", "currency"), "1.0877")
         self.assertEqual(fmt.chart_price_text(1234.5, "GBP", "stock"), "£1,234.50")

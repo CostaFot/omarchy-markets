@@ -220,6 +220,11 @@ class Cli(unittest.TestCase):
         self.assertEqual(doc["providers"][0]["supports"], ["stock", "currency"])
         self.assertEqual(doc["tracked"], 9)
         self.assertEqual(doc["holdings"], 0)
+        self.assertEqual(doc["state_dir_text"], self.tmp.name)  # tmp dirs are not under $HOME
+        self.assertEqual(doc["cache"]["quotes_age_text"], "no quotes fetched yet")
+        self.run_cli("snapshot")
+        doc = self.run_cli("status")
+        self.assertRegex(doc["cache"]["quotes_age_text"], r"^\d+ s ago$")
 
     # ---- portfolio ---------------------------------------------------------
     def test_portfolio_set_prices_converts_and_rolls_up(self):
