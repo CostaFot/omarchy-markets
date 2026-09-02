@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.0
+
+- First release. Nothing new in the panel or the helper since 0.7.0; this is the publishable cut: a `preview.png`, the README without its work-in-progress note, and the manifest no longer promising news. Keys for the optional keyed providers (Twelve Data, Finnhub) and the news page are deferred to later versions; the hub keeps its News placeholder.
+- Verified from a fresh clone: the 158 offline tests, `omarchy plugin validate`, and a first run with no state directory seeding the nine instruments with BTC, ETH and SOL in the strip.
+
 ## 0.7.0
 
 - The Settings page: the strip mode, whether the strip shows prices, how many entries it lists, the refresh interval, the portfolio currency (searchable, twenty ECB currencies) and the rate-limit banner, edited with the shell's own controls. `j`/`k` or Tab move between them, Enter edits, `h`/`l` steps or cycles, Enter on Save writes the keys that changed to the plugin's shell.json entry in one atomic write, Esc cancels. The shell patches a settings-only write into the running widget in place, so the panel stays open and the strip repaints without a restart. The hub's Settings row shows the strip mode and the interval.

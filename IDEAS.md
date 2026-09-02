@@ -2,6 +2,8 @@
 
 Backlog, not commitments. Dead ideas stay here marked as such so they are not re-pitched.
 
+- API keys through `secret-tool` (`key set|clear|status`, the secret on stdin, never argv or shell.json) with the optional keyed providers Twelve Data and Finnhub quotes; the keys ship with their first consumer. Session 8 of the plan file, deferred past 1.0.0 by Costa on 2026-09-03.
+- The News page (Finnhub company news, the hub's muted row is the placeholder) and a ticker-tape strip mode; session 9 of the plan file, deferred past 1.0.0 with the keys it needs.
 - Elbstream asset logos in rows (needs the helper to download into a capped cache; the attribution row ships with it).
 - Optional CoinGecko demo key (`x-cg-demo-api-key`) for 30 req/min — the header hook exists in `providers/coingecko.py`.
 - Incremental news paging with Finnhub's `minId`.

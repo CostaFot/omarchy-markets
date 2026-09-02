@@ -1,10 +1,10 @@
 # Markets for Omarchy
 
-Stocks, crypto and currencies in the [Omarchy](https://omarchy.org) bar. A live ticker strip, and a keyboard-driven panel with search, watchlist, favorites, portfolio, news and charts.
+Stocks, crypto and currencies in the [Omarchy](https://omarchy.org) bar. A live ticker strip, and a keyboard-driven panel with search, watchlist, favorites, portfolio and charts. No API keys.
+
+![Markets in the bar](preview.png)
 
 A port of the [Markets extension for Command Palette](https://github.com/CostaFot/MarketExtension) on Windows.
-
-> Work in progress. Version 0.7.0 has the bar strip and a panel with search, watchlist, favorites, a portfolio, a page per instrument with a 1D–5Y chart, a settings page and a data sources page, with crypto priced through CoinGecko and stocks, indices and currencies through Yahoo Finance. No API keys. News comes later.
 
 ## Install
 
@@ -29,7 +29,7 @@ The strip can show your portfolio instead, or as well: `strip: "portfolio"` is t
 
 ## The panel
 
-It opens on a hub: Search, Watchlist, Favorites, Portfolio, Data sources and Settings (News comes later). Pages stack; Escape or Backspace walks back, Escape on the hub closes.
+It opens on a hub: Search, Watchlist, Favorites, Portfolio, Data sources and Settings. The News row is a placeholder; news comes in a later version. Pages stack; Escape or Backspace walks back, Escape on the hub closes.
 
 - **Search** takes a symbol or a name and looks it up when you press Enter, never while you type. Results come from both providers, tagged Stock, Crypto or Currency, and say whether the row is already on your watchlist. Enter on a result opens it.
 - **Watchlist** lists what you track grouped into Stocks, Crypto and Currencies, priced. Type to filter by symbol or name; Tab moves from the box to the list for `j`/`k`, `/` goes back. The star on a row toggles the favorite.

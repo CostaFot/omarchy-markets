@@ -4,7 +4,7 @@ Before committing, re-read this file, the README and CHANGELOG against what actu
 
 The multi-session port plan (architecture, per-session scope, acceptance criteria) lives in `~/.claude/plans/alright-i-would-like-mossy-gosling.md`. The Windows original is `~/Work/MarketExtension` (C#); `~/Work/tickerbar` is a reference for the Quickshell side.
 
-## What exists (0.7.0)
+## What exists (1.0.0)
 
 The data core with two keyless quote providers and a keyless rates source, plus the QML: the bar strip (favorites, watchlist or the portfolio total) and a multi-page panel (hub, search, watchlist, favorites, portfolio, detail with a chart, membership and the holding, a holding form, a settings form that writes shell.json, a data sources page), a rate-limit banner and a `status` IPC.
 
@@ -139,6 +139,6 @@ Every QML `Text` sets `textFormat: Text.PlainText` (remote strings are rendered;
 
 ## Roadmap (one session each; details in the plan file)
 
-~~2 bar strip + watchlist panel~~ (done, 0.2.0) · ~~3 Yahoo Finance provider~~ (done, 0.3.0) · ~~4 hub, search, favorites, detail, membership~~ (done, 0.4.0) · ~~5 chart, ranges, rate-limit banner~~ (done, 0.5.0) · ~~6 portfolio (Frankfurter rates only)~~ (done, 0.6.0) · ~~7 settings page, data sources page~~ (done, 0.7.0; demo mode was dropped 2026-09-03 and its stubs removed: keyless providers made it pointless and a toggle that paints invented prices is a footgun; `demoMode` in `--settings` is now just an ignored key) · **8 keys (secret-tool, `key set|clear|status`, secret via stdin) with the optional keyed providers: Twelve Data, Finnhub quotes** (deferred by Costa 2026-09-03; the keys ship with their first consumer) · 9 news + ticker · 10 release polish 1.0.0
+~~2 bar strip + watchlist panel~~ (done, 0.2.0) · ~~3 Yahoo Finance provider~~ (done, 0.3.0) · ~~4 hub, search, favorites, detail, membership~~ (done, 0.4.0) · ~~5 chart, ranges, rate-limit banner~~ (done, 0.5.0) · ~~6 portfolio (Frankfurter rates only)~~ (done, 0.6.0) · ~~7 settings page, data sources page~~ (done, 0.7.0; demo mode was dropped 2026-09-03 and its stubs removed: keyless providers made it pointless and a toggle that paints invented prices is a footgun; `demoMode` in `--settings` is now just an ignored key) · ~~10 release polish~~ (done, 1.0.0, 2026-09-03: `preview.png`, README and manifest without the news promise, fresh-clone tests and validate, first run with no state dir; published before 8 and 9 on Costa's call) · **Deferred, now in `IDEAS.md`:** 8 keys (secret-tool, `key set|clear|status`, secret via stdin) with the optional keyed providers Twelve Data and Finnhub quotes (deferred by Costa 2026-09-03; the keys ship with their first consumer) · 9 news + ticker (the hub's muted News row is its placeholder)
 
 Revised 2026-09-03 after reviewing stochi, omarchy-stocks and OmaStockTicker; what was borrowed and what was rejected is in `~/.claude/plans/hey-i-found-3-ticklish-cake.md`.
