@@ -52,6 +52,44 @@ def money_signed(amount, code):
     return ("-" if amount < 0 else "+") + money(abs(amount), code)
 
 
+def pct_signed(pct):
+    """"+1.20" / "-0.80" — the "+0.00;-0.00" pattern the Windows extension used everywhere."""
+    try:
+        f = float(pct)
+    except (TypeError, ValueError):
+        f = 0.0
+    if f != f or f in (float("inf"), float("-inf")):
+        f = 0.0
+    return f"{f:+.2f}"
+
+
+def quantity(amount):
+    """"0.########": up to eight decimals, no trailing zeros, no grouping —
+    10, not 10.00; 0.5 stays 0.5. What a holding shows and what the
+    quantity field is prefilled with."""
+    try:
+        d = Decimal(str(amount))
+    except (InvalidOperation, ValueError):
+        d = Decimal(0)
+    if not d.is_finite():
+        d = Decimal(0)
+    q = d.quantize(Decimal("1e-8"), rounding=ROUND_HALF_UP).normalize()
+    if q == 0:
+        return "0"
+    text = f"{q:f}"
+    return text
+
+
+def unit_label(category):
+    """UiPosition.UnitLabel: shares for stocks, units for everything else (FX is a notional holding)."""
+    return "sh" if category == "stock" else "units"
+
+
+def holding_text(symbol, amount, category):
+    """UiPosition.FormatHolding: "AAPL · 10 sh" / "BTC · 0.5 units"."""
+    return f"{symbol} · {quantity(amount)} {unit_label(category)}"
+
+
 def money_compact(amount, code):
     """For the bar strip: whole units at >= 1000, four decimals under 1 (DOGE),
     two otherwise. Never more precision than the bar has room for."""
@@ -69,19 +107,35 @@ def money_compact(amount, code):
     return symbol + n if symbol is not None else f"{n} {code}"
 
 
+# Minor-unit currency codes some exchanges quote in: the major code and the
+# scale to it. Yahoo spells pence "GBp" (case is the signal: "GBP" is pounds),
+# other feeds "GBX"; South African cents and Israeli agorot likewise.
+MINOR_UNITS = {
+    "GBp": ("GBP", 0.01),
+    "GBX": ("GBP", 0.01),
+    "ZAc": ("ZAR", 0.01),
+    "ILA": ("ILS", 0.01),
+}
+_MINOR_UPPER = {k.upper(): v for k, v in MINOR_UNITS.items() if k.isupper()}
+
+
+def minor_unit(code):
+    """(major code, scale) when `code` is a minor-unit spelling, else None.
+    "GBp" and "ZAc" match exactly; the all-caps codes match any case."""
+    code = str(code or "").strip()
+    return MINOR_UNITS.get(code) or _MINOR_UPPER.get(code.upper())
+
+
 def is_pence(code):
-    return code == "GBp" or str(code).upper() == "GBX"
+    unit = minor_unit(code)
+    return bool(unit) and unit[0] == "GBP"
 
 
 def normalize_stock_quote(raw_currency, price, change):
     """CurrencyHelper.NormalizeStockQuote: LSE quotes arrive in pence (GBp/GBX);
     convert to pounds so the row shows £ and a sane number."""
-    code = (raw_currency or "").strip()
-    if not code:
-        return "USD", price, change
-    if is_pence(code):
-        return "GBP", price / 100.0, change / 100.0
-    return code.upper(), price, change
+    code, scale = currency_scale(raw_currency)
+    return code, price * scale, change * scale
 
 
 def currency_scale(raw_currency):
@@ -89,16 +143,14 @@ def currency_scale(raw_currency):
     code = (raw_currency or "").strip()
     if not code:
         return "USD", 1.0
-    if is_pence(code):
-        return "GBP", 0.01
+    unit = minor_unit(code)
+    if unit:
+        return unit
     return code.upper(), 1.0
 
 
 def normalize_code(raw_currency):
-    code = (raw_currency or "").strip()
-    if not code:
-        return "USD"
-    return "GBP" if is_pence(code) else code.upper()
+    return currency_scale(raw_currency)[0]
 
 
 def quote_currency_of_pair(pair):

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "costafot.markets",
   "name": "Markets",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "author": "CostaFot",
   "license": "MIT",
   "description": "Stocks, crypto and currencies in the bar: a live ticker strip plus a keyboard-driven panel with search, watchlist, favorites, portfolio, news and charts.",
@@ -29,7 +29,8 @@
       "strip": "favorites",
       "stripShowPrice": true,
       "stripMax": 6,
-      "showRateLimitErrors": true
+      "showRateLimitErrors": true,
+      "portfolioCurrency": "USD"
     },
     "schema": [
       {
@@ -46,10 +47,12 @@
         "key": "strip",
         "type": "enum",
         "label": "Strip shows",
-        "description": "Which instruments the bar strip lists.",
+        "description": "Which instruments the bar strip lists; portfolio is the holdings' total and today's move.",
         "options": [
           "favorites",
-          "watchlist"
+          "watchlist",
+          "portfolio",
+          "favorites+portfolio"
         ],
         "defaultValue": "favorites"
       },
@@ -59,6 +62,35 @@
         "label": "Show price in strip",
         "description": "Off shows only the change percentage.",
         "defaultValue": true
+      },
+      {
+        "key": "portfolioCurrency",
+        "type": "enum",
+        "label": "Portfolio currency",
+        "description": "Currency for the portfolio totals. Other holdings are converted into it with ECB rates.",
+        "options": [
+          "USD",
+          "EUR",
+          "GBP",
+          "JPY",
+          "CHF",
+          "AUD",
+          "CAD",
+          "NZD",
+          "CNY",
+          "HKD",
+          "SGD",
+          "SEK",
+          "NOK",
+          "DKK",
+          "PLN",
+          "ZAR",
+          "MXN",
+          "INR",
+          "BRL",
+          "KRW"
+        ],
+        "defaultValue": "USD"
       },
       {
         "key": "stripMax",

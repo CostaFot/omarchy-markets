@@ -200,6 +200,23 @@ class RepositoryRouting(unittest.TestCase):
         self.assertEqual(payload["strip"][1]["value_text"], "—")
         self.assertTrue(payload["strip"][0]["valid"])
 
+    def test_portfolio_holdings_are_observed_and_rolled_up_from_the_cache(self):
+        self.repo.portfolio.set(Instrument("DOGE", "Dogecoin", "crypto"), 100, 5)
+        doc = self.repo.snapshot(now=1000)
+        self.assertIn("DOGE", doc["quotes"])  # held, not tracked, still priced
+        self.assertEqual(len(doc["instruments"]), 9)
+        self.assertEqual(doc["held"], ["DOGE"])
+        pf = doc["portfolio"]
+        self.assertEqual(pf["currency"], "USD")
+        self.assertEqual(pf["positions"][0]["holding_text"], "DOGE · 100 units")
+        self.assertEqual(pf["totals"]["counted"], 1)
+        self.assertTrue(pf["totals"]["has_cost_basis"])
+        self.assertEqual(pf["note"], "")
+        # No FX call for USD holdings in USD, and the membership payload carries the same shape.
+        payload = self.repo.membership_payload(now=1000)
+        self.assertEqual(payload["portfolio"]["totals"]["value_text"], pf["totals"]["value_text"])
+        self.assertIn("DOGE", payload["quotes"])
+
     def test_settings_ignore_unknown_keys_and_keep_defaults(self):
         s = Settings({"stripMax": 3, "bogus": 1})
         self.assertEqual(s["stripMax"], 3)

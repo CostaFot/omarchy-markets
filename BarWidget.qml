@@ -55,7 +55,7 @@ BarWidget {
 
   //   omarchy-shell costafot.markets toggle
   //   omarchy-shell costafot.markets refresh
-  //   omarchy-shell costafot.markets page watchlist      # hub search watchlist favorites
+  //   omarchy-shell costafot.markets page watchlist      # hub search watchlist favorites portfolio
   //   omarchy-shell costafot.markets add DOGE crypto
   //   omarchy-shell costafot.markets favorite DOGE       # toggles; DOGE:crypto for a new symbol
   // `refresh` reaches every bar instance (one per monitor), not just the one
@@ -96,6 +96,7 @@ BarWidget {
       entries: root.entries.length,
       strip_max_width: root.stripMaxWidth,
       extras: s ? s.extras : [],
+      held: s ? s.held : [],
       chart: root.marketPanel ? root.marketPanel.chartStatus() : null
     }
     return JSON.stringify(doc)

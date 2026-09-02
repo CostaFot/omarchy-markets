@@ -54,6 +54,11 @@ QtObject {
   readonly property var instruments: snapshot && Array.isArray(snapshot.instruments) ? snapshot.instruments : []
   readonly property var quotes: snapshot && snapshot.quotes ? snapshot.quotes : ({})
   readonly property var favorites: snapshot && Array.isArray(snapshot.favorites) ? snapshot.favorites : []
+  // The priced holdings and their totals, every string ready to paint; the
+  // helper prices held symbols with the watchlist and converts them into
+  // the reporting currency, so this is never computed here.
+  readonly property var portfolio: snapshot && snapshot.portfolio && snapshot.portfolio.totals ? snapshot.portfolio : null
+  readonly property var held: snapshot && Array.isArray(snapshot.held) ? snapshot.held : []
   readonly property var attribution: snapshot && Array.isArray(snapshot.attribution) ? snapshot.attribution : []
   // From the newest document of any kind: the helper's latch outlives a
   // process (rate-limit.json), so a cached snapshot after a throttled poll
@@ -84,6 +89,12 @@ QtObject {
   function quoteFor(symbol) {
     var q = quotes[symbol]
     return q ? q : null
+  }
+
+  function positionFor(symbol) {
+    var rows = portfolio && Array.isArray(portfolio.positions) ? portfolio.positions : []
+    for (var i = 0; i < rows.length; i++) if (rows[i].symbol === symbol) return rows[i]
+    return null
   }
 
   // ---- Direction colours --------------------------------------------------
@@ -154,8 +165,9 @@ QtObject {
 
   // Runs one helper command. `onDone(doc)` gets the parsed document (or null
   // when the output was unusable); sections the document carries that the
-  // snapshot also has (`quotes instruments favorites strip`) are merged into
-  // the snapshot first, so a mutation re-renders with no second call.
+  // snapshot also has (`quotes instruments favorites portfolio held strip`)
+  // are merged into the snapshot first, so a mutation re-renders with no
+  // second call.
   function run(args, onDone) {
     var job = { args: args, onDone: onDone }
     if (busy) { pendingRun = job; return }
@@ -230,7 +242,7 @@ QtObject {
         snapshot = d
       } else {
         var merged = snapshot ? Object.assign({}, snapshot) : { schema_version: 1, command: "snapshot" }
-        var sections = ["instruments", "favorites", "strip"]
+        var sections = ["instruments", "favorites", "portfolio", "held", "strip"]
         for (var i = 0; i < sections.length; i++)
           if (d[sections[i]] !== undefined) merged[sections[i]] = d[sections[i]]
         // Quotes merge additively: a membership document carries the tracked

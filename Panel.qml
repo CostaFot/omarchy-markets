@@ -4,15 +4,17 @@ import qs.Commons
 import qs.Ui
 
 // Popup for the Markets bar widget: a hub that funnels into Search,
-// Watchlist and Favorites, and a detail page per instrument where
-// membership is managed. Pages live on a stack; Escape and Backspace walk
-// back, Escape on the hub closes. The panel owns the Store, so the strip in
-// the bar and the rows in here are the same document.
+// Watchlist, Favorites and Portfolio, and a detail page per instrument
+// where membership and the holding are managed. Pages live on a stack;
+// Escape and Backspace walk back, Escape on the hub closes. The panel owns
+// the Store, so the strip in the bar and the rows in here are the same
+// document.
 //
 // Page renderers build one flat `rows` array and a Repeater paints it; the
-// only widget outside the list is the filter field the list pages start
-// with. While that field has focus the key catcher is blocked and the field
-// forwards Up/Down/Enter/Escape/Tab itself.
+// only widgets outside the list are the filter field the list pages start
+// with and the holding form (the one page that is a form, not a list).
+// While a field has focus the key catcher is blocked and the field forwards
+// Up/Down/Enter/Escape/Tab itself.
 Panel {
   id: root
   moduleName: "costafot.markets"
@@ -53,7 +55,9 @@ Panel {
   readonly property var current: stack[stack.length - 1]
   readonly property string page: current.page
   readonly property bool isHub: stack.length === 1
-  readonly property bool hasField: page === "search" || page === "watchlist" || page === "favorites"
+  readonly property bool hasField: page === "search" || page === "watchlist" || page === "favorites" || page === "portfolio"
+  // The holding editor: two fields and a Save, drawn instead of the list.
+  readonly property bool isForm: page === "holding"
 
   readonly property var pageTitles: ({
     hub: "Markets", search: "Search", watchlist: "Watchlist", favorites: "Favorites",
@@ -101,6 +105,13 @@ Panel {
     if (entry.page === "detail") {
       if (!instrumentFor(entry.symbol)) store.refresh(false)
       loadChart(chartRange, false)
+    } else if (entry.page === "holding") {
+      // Prefilled with the current holding so a quantity-only edit
+      // round-trips the cost basis (the helper applies what it is sent).
+      var pos = store.positionFor(entry.symbol)
+      qtyField.text = pos ? pos.quantity_text : ""
+      costField.text = pos ? pos.cost_basis_text : ""
+      holdingError = ""
     }
     Qt.callLater(function() {
       var wanted = entry.cursor
@@ -111,18 +122,20 @@ Panel {
   }
 
   function focusForPage() {
-    if (hasField) filterField.forceActiveFocus()
+    if (isForm) { qtyField.forceActiveFocus(); qtyField.selectAll() }
+    else if (hasField) filterField.forceActiveFocus()
     else keyCatcher.forceActiveFocus()
   }
 
   // The untracked symbols on the stack, priced alongside the watchlist while
-  // their detail page is up.
+  // their detail page (or holding form) is up. Held symbols are already
+  // observed by every poll; listing one again costs nothing.
   readonly property var detailExtras: {
     var out = []
     var tracked = store.instruments
     for (var i = 0; i < stack.length; i++) {
       var e = stack[i]
-      if (e.page !== "detail") continue
+      if (e.page !== "detail" && e.page !== "holding") continue
       var known = false
       for (var t = 0; t < tracked.length; t++) if (tracked[t].symbol === e.symbol) { known = true; break }
       if (!known) out.push(e.symbol + ":" + e.category)
@@ -298,6 +311,69 @@ Panel {
                (on ? "Added " : "Removed ") + sym + (on ? " to" : " from") + " favorites")
   }
 
+  // ---- Holdings -----------------------------------------------------------
+  // Port of SetQuantityPage: the quantity must be above zero, the cost per
+  // unit is optional (empty or 0 means "not recorded", which hides total
+  // return). The helper validates again and formats every number; what is
+  // parsed here is only checked, then sent as typed.
+  property string holdingError: ""
+
+  function parseAmount(text) {
+    var t = String(text || "").trim().replace(",", ".")
+    if (t === "") return null
+    var n = Number(t)
+    return isFinite(n) ? n : NaN
+  }
+
+  function saveHolding() {
+    if (!isForm) return
+    var e = current
+    var qty = parseAmount(qtyField.text)
+    if (qty === null || isNaN(qty) || qty <= 0) {
+      holdingError = "Enter a quantity greater than 0."
+      qtyField.forceActiveFocus()
+      return
+    }
+    var cost = parseAmount(costField.text)
+    if (cost !== null && (isNaN(cost) || cost < 0)) {
+      holdingError = "Enter the average cost per unit as a number, or leave it empty."
+      costField.forceActiveFocus()
+      return
+    }
+    holdingError = ""
+    var inst = instrumentFor(e.symbol)
+    var sym = e.symbol
+    var args = ["portfolio", "set", sym, inst ? inst.category : e.category, inst ? inst.name : (e.name || sym), String(qty)]
+    if (cost !== null && cost > 0) args.push(String(cost))
+    store.run(args, function(doc) {
+      if (!doc) { root.holdingError = root.store.errorText || "No answer from the helper"; return }
+      if (doc.error && doc.error.message) { root.holdingError = doc.error.message; return }
+      root.showNotice(doc.notice || ("Saved " + sym), false)
+      if (root.isForm && root.current.symbol === sym) root.pop()
+    })
+  }
+
+  function removeHolding(symbol) {
+    membership(["portfolio", "remove", symbol], "Removed " + symbol + " from the portfolio")
+  }
+
+  // Keys in the two form fields: Enter saves, Tab and the arrows switch
+  // fields, Escape backs out. Backspace edits (a prefilled value cleared to
+  // nothing must not lose the page, unlike the filter boxes).
+  function formKey(event, other) {
+    if (event.key === Qt.Key_Escape) {
+      pop()
+      event.accepted = true
+    } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+      saveHolding()
+      event.accepted = true
+    } else if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab || event.key === Qt.Key_Down || event.key === Qt.Key_Up) {
+      other.forceActiveFocus()
+      other.selectAll()
+      event.accepted = true
+    }
+  }
+
   // ---- Rows ---------------------------------------------------------------
   readonly property var categoryOrder: ["stock", "crypto", "currency"]
   readonly property var categoryLabels: ({ stock: "Stocks", crypto: "Crypto", currency: "Currencies" })
@@ -336,11 +412,15 @@ Panel {
     var s = root.store
     var counts = { watchlist: 0, favorites: s.favorites.length }
     for (var i = 0; i < s.instruments.length; i++) if (s.instruments[i].in_watchlist !== false) counts.watchlist++
+    var pf = s.portfolio
+    var pfDetail = "No holdings yet"
+    if (pf && pf.totals.has_holdings)
+      pfDetail = pf.totals.counted > 0 ? pf.totals.value_text + "  " + pf.totals.change_text : pf.positions.length + " held, not priced"
     return [
       { type: "action", icon: "", label: "Search", detail: "Look up a stock, crypto or currency", page: "search" },
       { type: "action", icon: "", label: "Watchlist", detail: counts.watchlist + " tracked", page: "watchlist" },
       { type: "action", icon: "★", label: "Favorites", detail: counts.favorites + " starred, shown in the bar", page: "favorites" },
-      { type: "action", icon: "", label: "Portfolio", detail: "Coming in a later version", page: "portfolio", muted: true },
+      { type: "action", icon: "\uf19c", label: "Portfolio", detail: pfDetail, page: "portfolio" },
       { type: "action", icon: "", label: "News", detail: "Coming in a later version", page: "news", muted: true },
       { type: "action", icon: "", label: "Data sources", detail: "Who prices what", page: "sources" },
       { type: "action", icon: "", label: "Settings", detail: "Coming in a later version", page: "settings", muted: true }
@@ -385,6 +465,51 @@ Panel {
       if (query !== "") out.push({ type: "note", label: "No favorite matches \"" + query + "\"" })
       else out.push({ type: "note", label: "No favorites yet", detail: "Open an instrument and star it from its detail page. Favorites are what the bar strip shows." })
     }
+    return out
+  }
+
+  // Port of PortfolioPage: the totals pinned first, built from the whole
+  // portfolio even while the filter hides rows, then one row per holding.
+  function portfolioRows() {
+    var s = root.store
+    var pf = s.portfolio
+    var out = []
+    if (!pf || !pf.totals.has_holdings) {
+      if (!s.hasData) out.push({ type: "note", label: s.busy ? "Fetching prices…" : "No prices yet", detail: "The first snapshot is on its way." })
+      else out.push({ type: "note", label: "No holdings yet",
+                      detail: "Open an instrument and add it from its page. Holdings are priced with your watchlist and totalled here in " + (pf ? pf.currency : "USD") + "." })
+      return out
+    }
+    var t = pf.totals
+    var n = pf.positions.length
+    out.push({
+      type: "hero", symbol: "Total value",
+      name: n + (n === 1 ? " holding" : " holdings") + " · " + pf.currency,
+      caption: String(t.return_note + t.unconverted_note).replace(/^ · /, ""),
+      valid: t.counted > 0, priceText: t.counted > 0 ? t.value_text : "—",
+      changeText: "", subline: t.counted > 0 ? t.change_text : "", dir: t.dir
+    })
+    if (pf.note) out.push({ type: "note", warn: true, icon: "\uf071", label: pf.note })
+    out.push({ type: "sep" })
+    var shown = 0
+    for (var i = 0; i < n; i++) {
+      var p = pf.positions[i]
+      if (!matchesFilter(p)) continue
+      var detail = p.name || p.symbol
+      if (!p.valid) detail = s.busy ? "Pricing…" : "Not priced"
+      else {
+        if (p.return_text) detail += " · Total " + p.return_text
+        if (!p.converted) detail += " · not converted"
+        else if (p.stale) detail += " · last known price"
+      }
+      out.push({
+        type: "instrument", symbol: p.symbol, name: p.name || p.symbol, category: p.category,
+        label: p.holding_text, favorite: s.favorites.indexOf(p.symbol) !== -1, starButton: false, stacked: true,
+        valid: p.valid, priceText: p.value_text, changeText: p.daily_text, dir: p.dir, detail: detail
+      })
+      shown++
+    }
+    if (shown === 0) out.push({ type: "note", label: "No holding matches \"" + query + "\"" })
     return out
   }
 
@@ -459,6 +584,7 @@ Panel {
     out.push({ type: "sep" })
     var inWatch = inst ? inst.in_watchlist === true : false
     var isFav = inst ? inst.is_favorite === true : false
+    var pos = s.positionFor(e.symbol)
     if (inst || valid) {
       out.push({ type: "action", icon: inWatch ? "" : "", label: inWatch ? "Remove from watchlist" : "Add to watchlist",
                  action: "watchlist", symbol: e.symbol, category: category, name: name, on: !inWatch })
@@ -470,6 +596,18 @@ Panel {
     } else {
       out.push({ type: "note", label: e.symbol + " could not be priced", urgent: true,
                  detail: (s.errorText !== "" ? s.errorText + ". " : "") + "Nothing to add until a provider answers for it; r retries." })
+    }
+    // The holding (PortfolioCommands): edit and remove once held, else add.
+    // A held symbol keeps its rows even while unpriced; it can still be removed.
+    if (pos) {
+      var held = pos.valid ? pos.value_text + (pos.daily_text ? "  " + pos.daily_text : "") : "Not priced"
+      if (pos.return_text) held += "  Total " + pos.return_text
+      out.push({ type: "action", icon: "\uf040", label: "Edit holding · " + pos.amount_text, detail: held,
+                 action: "holding", symbol: e.symbol, category: category, name: name })
+      out.push({ type: "action", icon: "\uf068", label: "Remove from portfolio", action: "portfolio-remove", symbol: e.symbol })
+    } else if (inst || valid) {
+      out.push({ type: "action", icon: "\uf19c", label: "Add to portfolio", detail: "How much you hold and, if you like, what you paid",
+                 action: "holding", symbol: e.symbol, category: category, name: name })
     }
     if (notice !== "") {
       out.push({ type: "sep" })
@@ -497,6 +635,7 @@ Panel {
   readonly property var rows: {
     var s = root.store
     var out = []
+    if (isForm) return out  // the form draws itself
     if (!isHub) out.push({ type: "title", label: page === "detail" ? current.symbol : (pageTitles[page] || page) })
     if (s.rateLimitBanner)
       out.push({ type: "note", warn: true, icon: "", label: "Rate-limited — showing last known prices",
@@ -505,6 +644,7 @@ Panel {
     if (page === "hub") body = hubRows()
     else if (page === "watchlist") body = watchlistRows()
     else if (page === "favorites") body = favoritesRows()
+    else if (page === "portfolio") body = portfolioRows()
     else if (page === "search") body = searchRows()
     else if (page === "detail") body = detailRows()
     else body = soonRows()
@@ -540,6 +680,7 @@ Panel {
 
   function keyHint() {
     if (page === "hub") return "j/k move · Enter opens · r refreshes · Esc closes"
+    if (page === "portfolio") return "Type to filter · ↑/↓ move · Enter opens the holding · Esc back"
     if (page === "search") return "Enter searches, then opens · Tab to the list · Esc back"
     if (hasField) return "Type to filter · ↑/↓ move · Enter opens · Esc back"
     if (page === "detail") return "←/→ or 1–5 range · Enter applies · r refreshes · Esc back"
@@ -614,6 +755,8 @@ Panel {
       else if (row.action === "search") runSearch()
       else if (row.action === "watchlist") setWatchlist(row.symbol, row.category, row.name, row.on)
       else if (row.action === "favorite") setFavorite(row.symbol, row.category, row.name, row.on)
+      else if (row.action === "holding") push({ page: "holding", symbol: row.symbol, name: row.name, category: row.category })
+      else if (row.action === "portfolio-remove") removeHolding(row.symbol)
     } else if (row.type === "title") {
       pop()
     }
@@ -652,10 +795,12 @@ Panel {
     owner: root.barIdentity
     bar: root.bar
     open: root.opened
-    focusTarget: root.hasField ? filterField : keyCatcher
+    focusTarget: root.isForm ? qtyField : (root.hasField ? filterField : keyCatcher)
     contentWidth: panel.fittedContentWidth(Style.space(380))
     contentHeight: panel.fittedContentHeight(
-      contentColumn.implicitHeight + (root.hasField ? filterField.height + Style.space(6) : 0), Style.space(760))
+      root.isForm ? holdingForm.implicitHeight + Style.space(12)
+                  : contentColumn.implicitHeight + (root.hasField ? filterField.height + Style.space(6) : 0),
+      Style.space(760))
 
     // Unhandled keys from the catcher (it never accepts Backspace) land here.
     Item {
@@ -673,7 +818,7 @@ Panel {
         id: keyCatcher
         anchors.fill: parent
         clip: true
-        blocked: filterField.activeFocus
+        blocked: filterField.activeFocus || qtyField.activeFocus || costField.activeFocus
         onMoveRequested: function(dx, dy) {
           if (dy !== 0) root.moveCursor(dy)
           else if (dx !== 0 && root.page === "detail") root.stepRange(dx)
@@ -703,7 +848,8 @@ Panel {
             foreground: root.contentForeground
             font.family: root.contentFontFamily
             placeholderText: root.page === "search" ? "Symbol or name, then Enter"
-                           : root.page === "watchlist" ? "Filter the watchlist" : "Filter favorites"
+                           : root.page === "watchlist" ? "Filter the watchlist"
+                           : root.page === "portfolio" ? "Filter holdings" : "Filter favorites"
 
             Keys.onPressed: function(event) {
               if (event.key === Qt.Key_Escape) {
@@ -728,8 +874,186 @@ Panel {
             }
           }
 
+          // The holding editor. It lives outside the row Repeater on
+          // purpose: rows are rebuilt whenever the snapshot changes, which
+          // would throw away a half-typed quantity and its focus when a
+          // poll lands. Symbol, name and price come from the store; the
+          // fields hold what the user types until Save sends it.
+          Column {
+            id: holdingForm
+            visible: root.isForm
+            anchors.top: parent.top
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.leftMargin: Style.space(8)
+            anchors.rightMargin: Style.space(8)
+            spacing: Style.space(6)
+
+            readonly property string symbol: root.isForm ? root.current.symbol : ""
+            readonly property var quote: root.isForm ? root.store.quoteFor(symbol) : null
+            readonly property var position: root.isForm ? root.store.positionFor(symbol) : null
+            readonly property var instrument: root.isForm ? root.instrumentFor(symbol) : null
+            readonly property string currency: quote && quote.valid && quote.currency ? quote.currency : ""
+            readonly property string category: instrument ? instrument.category : (root.isForm ? root.current.category : "stock")
+
+            // ‹ Edit holding — clicking it goes back, like the list titles.
+            Item {
+              width: parent.width
+              height: Style.space(30)
+
+              Row {
+                anchors.fill: parent
+                spacing: Style.space(8)
+
+                Text {
+                  height: parent.height
+                  textFormat: Text.PlainText
+                  text: "‹"
+                  color: root.mutedForeground
+                  font.family: root.contentFontFamily
+                  font.pixelSize: Style.font.title
+                  verticalAlignment: Text.AlignVCenter
+                }
+
+                Text {
+                  height: parent.height
+                  textFormat: Text.PlainText
+                  text: holdingForm.position ? "Edit holding" : "Add to portfolio"
+                  color: root.contentForeground
+                  font.family: root.contentFontFamily
+                  font.pixelSize: Style.font.title
+                  font.bold: true
+                  verticalAlignment: Text.AlignVCenter
+                }
+              }
+
+              MouseArea {
+                anchors.fill: parent
+                cursorShape: Qt.PointingHandCursor
+                onClicked: root.pop()
+              }
+            }
+
+            Text {
+              width: parent.width
+              textFormat: Text.PlainText
+              text: holdingForm.symbol + " · " + (holdingForm.instrument ? holdingForm.instrument.name
+                    : (holdingForm.quote && holdingForm.quote.name ? holdingForm.quote.name : (root.isForm ? root.current.name : "")))
+              color: root.contentForeground
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.body
+              elide: Text.ElideRight
+            }
+
+            Text {
+              width: parent.width
+              textFormat: Text.PlainText
+              text: holdingForm.quote && holdingForm.quote.valid
+                    ? holdingForm.quote.price_text + " · " + (root.categoryNames[holdingForm.category] || holdingForm.category)
+                      + (holdingForm.currency ? " · " + holdingForm.currency : "")
+                    : "Not priced yet"
+              color: root.mutedForeground
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.caption
+              elide: Text.ElideRight
+            }
+
+            Item { width: 1; height: Style.space(4) }
+
+            Text {
+              width: parent.width
+              textFormat: Text.PlainText
+              text: "Quantity held" + (holdingForm.category === "stock" ? " (shares)" : " (units)")
+              color: root.mutedForeground
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.caption
+            }
+
+            TextField {
+              id: qtyField
+              width: parent.width
+              foreground: root.contentForeground
+              font.family: root.contentFontFamily
+              placeholderText: "10, or 0.5"
+              inputMethodHints: Qt.ImhFormattedNumbersOnly
+              Keys.onPressed: function(event) { root.formKey(event, costField) }
+            }
+
+            Text {
+              width: parent.width
+              textFormat: Text.PlainText
+              text: "Average cost per unit" + (holdingForm.currency ? " in " + holdingForm.currency : "") + " (optional)"
+              color: root.mutedForeground
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.caption
+            }
+
+            TextField {
+              id: costField
+              width: parent.width
+              foreground: root.contentForeground
+              font.family: root.contentFontFamily
+              placeholderText: "What you paid per unit; empty if unknown"
+              inputMethodHints: Qt.ImhFormattedNumbersOnly
+              Keys.onPressed: function(event) { root.formKey(event, qtyField) }
+            }
+
+            Text {
+              width: parent.width
+              textFormat: Text.PlainText
+              text: "Total return needs the cost; daily P&L does not."
+              color: root.mutedForeground
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.caption
+              wrapMode: Text.Wrap
+            }
+
+            Text {
+              visible: root.holdingError !== ""
+              width: parent.width
+              textFormat: Text.PlainText
+              text: root.holdingError
+              color: root.urgentForeground
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.caption
+              wrapMode: Text.Wrap
+            }
+
+            Item { width: 1; height: Style.space(4) }
+
+            Row {
+              spacing: Style.space(8)
+
+              Button {
+                text: "Save"
+                bordered: true
+                foreground: root.contentForeground
+                fontFamily: root.contentFontFamily
+                onClicked: root.saveHolding()
+              }
+
+              Button {
+                text: "Cancel"
+                foreground: root.mutedForeground
+                fontFamily: root.contentFontFamily
+                onClicked: root.pop()
+              }
+            }
+
+            Text {
+              width: parent.width
+              textFormat: Text.PlainText
+              text: "Enter saves · Tab switches field · Esc back"
+              color: root.mutedForeground
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.caption
+              elide: Text.ElideRight
+            }
+          }
+
           Flickable {
             id: listScroll
+            visible: !root.isForm
             anchors.top: root.hasField ? filterField.bottom : parent.top
             anchors.topMargin: root.hasField ? Style.space(6) : 0
             anchors.left: parent.left
@@ -765,6 +1089,9 @@ Panel {
                   readonly property bool cursorable: isInstrument || isAttribution || isAction
                   readonly property bool hasCursor: cursorable && index === root.selectedIndex
                   readonly property bool twoLine: (isInstrument || isAction) && !!modelData.detail
+                  // A holding's row: the value over today's P&L on the right,
+                  // both right-aligned, so a converted value fits beside the symbol.
+                  readonly property bool stacked: isInstrument && modelData.stacked === true
                   readonly property color rowForeground: (isInstrument && !modelData.valid) || (isAction && modelData.muted === true)
                     ? root.mutedForeground : root.contentForeground
 
@@ -889,6 +1216,19 @@ Panel {
                         font.family: root.contentFontFamily
                         font.pixelSize: Style.font.title
                       }
+                    }
+
+                    // A long change line (the portfolio's "▼ -$17.25 (-0.04%) today")
+                    // goes under the figure instead of beside it.
+                    Text {
+                      visible: text !== ""
+                      width: parent.width
+                      textFormat: Text.PlainText
+                      text: rowItem.kind === "hero" ? (rowItem.modelData.subline || "") : ""
+                      color: root.store.dirColor(rowItem.modelData.dir, root.contentForeground)
+                      font.family: root.contentFontFamily
+                      font.pixelSize: Style.font.title
+                      elide: Text.ElideRight
                     }
 
                     Text {
@@ -1122,6 +1462,7 @@ Panel {
                         spacing: Style.space(8)
 
                         Text {
+                          visible: !rowItem.stacked
                           height: parent.height
                           textFormat: Text.PlainText
                           text: rowItem.modelData.priceText || ""
@@ -1132,7 +1473,7 @@ Panel {
                         }
 
                         Text {
-                          visible: text !== ""
+                          visible: !rowItem.stacked && text !== ""
                           height: parent.height
                           textFormat: Text.PlainText
                           text: rowItem.modelData.changeText || ""
@@ -1144,6 +1485,36 @@ Panel {
                           Behavior on color {
                             enabled: !root.bar || root.bar.foregroundAnimationEnabled
                             ColorAnimation { duration: 160 }
+                          }
+                        }
+
+                        Column {
+                          visible: rowItem.stacked
+                          width: Math.max(stackedValue.implicitWidth, stackedChange.implicitWidth)
+                          anchors.verticalCenter: parent.verticalCenter
+                          spacing: Style.space(1)
+
+                          Text {
+                            id: stackedValue
+                            width: parent.width
+                            textFormat: Text.PlainText
+                            text: rowItem.stacked ? (rowItem.modelData.priceText || "") : ""
+                            color: rowItem.rowForeground
+                            font.family: root.contentFontFamily
+                            font.pixelSize: Style.font.body
+                            horizontalAlignment: Text.AlignRight
+                          }
+
+                          Text {
+                            id: stackedChange
+                            visible: text !== ""
+                            width: parent.width
+                            textFormat: Text.PlainText
+                            text: rowItem.stacked ? (rowItem.modelData.changeText || "") : ""
+                            color: root.store.dirColor(rowItem.modelData.dir, rowItem.rowForeground)
+                            font.family: root.contentFontFamily
+                            font.pixelSize: Style.font.caption
+                            horizontalAlignment: Text.AlignRight
                           }
                         }
                       }

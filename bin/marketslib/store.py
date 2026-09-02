@@ -190,3 +190,122 @@ class Watchlist:
         if changed:
             self.save()
         return changed
+
+
+class Portfolio:
+    """Holdings on disk (port of Settings/PortfolioStore.cs): a quantity and an
+    optional cost basis per instrument, in insertion order. Nothing is
+    seeded — a fresh install holds nothing. A corrupt file is moved aside and
+    the portfolio starts empty, reported once through `recovered_from`."""
+
+    def __init__(self, path):
+        self.path = path
+        self.recovered_from = None
+        self.entries = {}
+        self._load()
+
+    def _load(self):
+        try:
+            data = read_json(self.path)
+        except ValueError:
+            data = self._quarantine()
+        if data is None:
+            return
+        if not isinstance(data, list):
+            self._quarantine()
+            return
+        for item in data:
+            if not isinstance(item, dict) or not item.get("symbol"):
+                continue
+            qty = _positive(item.get("quantity"))
+            if qty is None:
+                continue
+            inst = Instrument.from_dict(item)
+            self.entries[inst.symbol] = {
+                "symbol": inst.symbol,
+                "name": inst.name,
+                "category": inst.category,
+                "quantity": qty,
+                "cost_basis": _positive(item.get("cost_basis")),
+                "provider_ids": inst.provider_ids,
+            }
+
+    def _quarantine(self):
+        backup = f"{self.path}.bak.{int(time.time())}"
+        try:
+            os.replace(self.path, backup)
+            self.recovered_from = backup
+        except OSError:
+            pass
+        return None
+
+    def save(self):
+        write_json_atomic(self.path, list(self.entries.values()))
+
+    # ---- reads -----------------------------------------------------------
+    def position(self, symbol):
+        return self.entries.get(normalize(symbol))
+
+    def contains(self, symbol):
+        return normalize(symbol) in self.entries
+
+    def positions(self):
+        return list(self.entries.values())
+
+    def instruments(self):
+        return [Instrument.from_dict(e) for e in self.entries.values()]
+
+    def instrument(self, symbol):
+        e = self.position(symbol)
+        return Instrument.from_dict(e) if e else None
+
+    # ---- writes ----------------------------------------------------------
+    def set(self, instrument, quantity, cost_basis=None):
+        """Add or replace a holding. The cost basis is applied verbatim: a
+        value sets it, None clears it (the editor prefills the current one,
+        so a quantity-only edit round-trips it)."""
+        key = normalize(instrument.symbol)
+        current = self.entries.get(key) or {}
+        ids = dict(current.get("provider_ids") or {})
+        ids.update(instrument.provider_ids or {})
+        entry = {
+            "symbol": key,
+            "name": instrument.name or current.get("name") or key,
+            "category": instrument.category,
+            "quantity": float(quantity),
+            "cost_basis": float(cost_basis) if cost_basis is not None else None,
+            "provider_ids": ids,
+        }
+        self.entries[key] = entry  # a replaced key keeps its insertion slot
+        self.save()
+        return entry
+
+    def remove(self, symbol):
+        e = self.entries.pop(normalize(symbol), None)
+        if e is not None:
+            self.save()
+        return e
+
+    def merge_provider_ids(self, symbol, ids):
+        e = self.position(symbol)
+        if not e or not ids:
+            return False
+        changed = False
+        for k, v in ids.items():
+            if v and e["provider_ids"].get(k) != v:
+                e["provider_ids"][k] = v
+                changed = True
+        if changed:
+            self.save()
+        return changed
+
+
+def _positive(value):
+    """A finite number above zero, else None (a holding with no quantity is no holding)."""
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return None
+    if f != f or f in (float("inf"), float("-inf")) or f <= 0:
+        return None
+    return f

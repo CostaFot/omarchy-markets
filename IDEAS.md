@@ -19,3 +19,6 @@ Backlog, not commitments. Dead ideas stay here marked as such so they are not re
 - A hover readout on the chart: the price and time under the pointer, as a crosshair. The helper would have to ship a label per point (it formats every string), so 300 more strings per chart.
 - A previous-close line on the crypto day chart. CoinGecko states none; `price − change` from the quote would do, but the 24 h series is rolling, so it is just the first point.
 - Reset the chart range to 1D when the panel opens (today it is sticky for the shell's lifetime; a 5Y left on Monday is still 5Y on Friday).
+- Portfolio: a cost basis recorded in a currency other than the instrument's (today it is the instrument's, as on Windows); ordering holdings by value instead of insertion; a per-holding weight in the totals row.
+- The holding form's number fields are the kit's `TextField` because `NumberField` is an integer `SpinBox` (no 0.5 BTC). A decimal field in the shell kit would let the form use it.
+- The portfolio's strip entry could carry a sparkline of the total once a day's worth of totals is kept; the helper keeps none today.

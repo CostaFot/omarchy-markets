@@ -18,7 +18,7 @@ import os
 import sys
 import time
 
-from . import http, plugin_version
+from . import fmt, http, plugin_version
 from .models import RANGES, is_category
 from .models import Instrument
 from .repo import Repository, Settings
@@ -34,7 +34,8 @@ USAGE = (
     "  search QUERY\n"
     "  candles SYM[:CAT] 1D|1W|1M|1Y|5Y\n"
     "  watchlist add SYM[:CAT] [CAT] [NAME...] | watchlist remove SYM\n"
-    "  favorite add SYM[:CAT] [CAT] [NAME...] | favorite remove SYM"
+    "  favorite add SYM[:CAT] [CAT] [NAME...] | favorite remove SYM\n"
+    "  portfolio set SYM[:CAT] [CAT] [NAME...] QUANTITY [COST_PER_UNIT] | portfolio remove SYM"
 )
 
 
@@ -69,6 +70,11 @@ def _finish(repo, command, payload, ok=True, error=None):
         error = {
             "code": "state_corrupt",
             "message": f"watchlist.json was unreadable and has been re-seeded (backup: {repo.watchlist.recovered_from})",
+        }
+    if repo.portfolio.recovered_from and error is None:
+        error = {
+            "code": "state_corrupt",
+            "message": f"portfolio.json was unreadable and has been set aside (backup: {repo.portfolio.recovered_from})",
         }
     doc = envelope(command, ok=ok, error=error, **payload)
     doc["demo"] = repo.settings.demo
@@ -131,6 +137,8 @@ def cmd_status(repo, args, now):
         "providers": providers,
         "tracked": len(tracked),
         "favorites": len(repo.watchlist.favorites()),
+        "holdings": len(repo.portfolio.positions()),
+        "portfolio_currency": str(repo.settings.get("portfolioCurrency") or "USD").upper(),
         "cache": {"quotes_age_s": max(ages) if ages else None},
     }
 
@@ -199,7 +207,7 @@ def _instrument_args(repo, args, now):
         raise BadArgs("missing symbol")
     cat = args[1].lower() if len(args) > 1 else spec_cat.strip().lower()
     name = " ".join(args[2:]).strip() if len(args) > 2 else ""
-    known = repo.watchlist.instrument(sym)
+    known = repo.watchlist.instrument(sym) or repo.portfolio.instrument(sym)
     if cat and not is_category(cat):
         raise BadArgs("category must be stock, crypto or currency")
     if not cat:
@@ -251,6 +259,76 @@ def cmd_favorite(repo, args, now):
     return repo.membership_payload(now)
 
 
+def _number(text):
+    """A finite float from user text; a comma decimal separator is accepted. None when it is not a number."""
+    raw = str(text or "").strip().replace(",", ".")
+    if not raw:
+        return None
+    try:
+        f = float(raw)
+    except ValueError:
+        return None
+    if f != f or f in (float("inf"), float("-inf")):
+        return None
+    return f
+
+
+def _split_holding_args(args):
+    """SYM [CAT] [NAME...] QTY [COST] -> (instrument args, qty text, cost text).
+    The numbers are taken from the end: two trailing numbers are quantity
+    and cost, one is the quantity. A name that ends in a number must be
+    quoted into one argument (the panel always passes it that way)."""
+    rest = list(args)
+    numbers = []
+    while rest and len(numbers) < 2 and _number(rest[-1]) is not None:
+        numbers.insert(0, rest.pop())
+    if not numbers:
+        raise BadArgs("Enter a quantity greater than 0.")
+    qty = numbers[0]
+    cost = numbers[1] if len(numbers) > 1 else None
+    return rest, qty, cost
+
+
+def cmd_portfolio(repo, args, now):
+    if not args:
+        raise BadArgs("portfolio set|remove ...")
+    verb, rest = args[0], args[1:]
+    if verb == "set":
+        spec, qty_text, cost_text = _split_holding_args(rest)
+        qty = _number(qty_text)
+        if qty is None:
+            raise BadArgs("Enter a number greater than 0.")
+        if qty <= 0:
+            raise BadArgs("Quantity must be greater than 0. To remove a holding, use Remove from portfolio.")
+        cost = _number(cost_text) if cost_text is not None else None
+        if cost_text is not None and cost is None:
+            raise BadArgs("Enter the average cost per unit as a number, or leave it out.")
+        if cost is not None and cost < 0:
+            raise BadArgs("The cost per unit cannot be negative.")
+        if cost == 0:
+            cost = None  # "not recorded": total return is simply omitted
+        inst = _instrument_args(repo, spec, now)
+        if repo.quote_cache.get(inst.symbol) is None:
+            # Price the holding on the way in so the answer already carries
+            # its value; a symbol nobody has priced yet is still recorded.
+            repo.refresh([inst], now)
+        repo.portfolio.set(inst, qty, cost)
+        notice = f"Set {inst.symbol} to {fmt.quantity(qty)} {fmt.unit_label(inst.category)}"
+        if cost is not None:
+            notice += f" at {fmt.quantity(cost)}/unit"
+    elif verb == "remove":
+        if not rest:
+            raise BadArgs("portfolio remove SYM")
+        sym = repo.canonical_symbol(rest[0])[0]
+        removed = repo.portfolio.remove(sym)
+        notice = f"Removed {sym} from the portfolio" if removed else f"{sym} was not in the portfolio"
+    else:
+        raise BadArgs("portfolio set|remove ...")
+    payload = repo.membership_payload(now)
+    payload["notice"] = notice
+    return payload
+
+
 COMMANDS = {
     "status": cmd_status,
     "snapshot": cmd_snapshot,
@@ -259,6 +337,7 @@ COMMANDS = {
     "candles": cmd_candles,
     "watchlist": cmd_watchlist,
     "favorite": cmd_favorite,
+    "portfolio": cmd_portfolio,
 }
 
 

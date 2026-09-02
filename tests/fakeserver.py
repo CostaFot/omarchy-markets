@@ -138,12 +138,41 @@ def yahoo_routes(server):
     return server
 
 
+# USD per one unit, the ECB fixings of 2026-09-02 (the recorded fixture).
+FRANKFURTER_USD_PER_UNIT = {"USD": 1.0, "EUR": 1.0 / 0.86371, "GBP": 1.0 / 0.74167, "JPY": 1.0 / 159.6, "CHF": 1.25}
+
+
+def frankfurter_routes(server):
+    """Frankfurter's /v1/latest as observed live 2026-09-03: `rates` holds
+    the requested symbols the ECB publishes, unknown ones are dropped
+    silently, and a request with no known symbol (or an unknown base) is a
+    404 {"message":"not found"}. Any base in the table works, so a test can
+    report in EUR as well as USD."""
+    table = FRANKFURTER_USD_PER_UNIT
+
+    def latest(query, path):
+        base = str(query.get("base") or "EUR").upper()
+        wanted = [s.strip().upper() for s in str(query.get("symbols") or "").split(",") if s.strip()]
+        if base not in table:
+            return 404, {}, b'{"message":"not found"}'
+        codes = wanted or [c for c in table if c != base]
+        rates = {c: round(table[base] / table[c], 5) for c in codes if c in table and c != base}
+        if not rates:
+            return 404, {}, b'{"message":"not found"}'
+        body = json.dumps({"amount": 1.0, "base": base, "date": "2026-09-02", "rates": rates}).encode("utf-8")
+        return 200, {}, body
+
+    server.handler("/v1/latest", latest)
+    return server
+
+
 if __name__ == "__main__":
     # A standalone server for trying the widget by hand:
     #   python3 tests/fakeserver.py --mode 429      # every request is throttled
     #   python3 tests/fakeserver.py --mode ok       # the recorded fixtures
     # then point the helper at it:
-    #   MARKETS_COINGECKO_URL=http://127.0.0.1:PORT MARKETS_YAHOO_URL=http://127.0.0.1:PORT bin/markets snapshot
+    #   MARKETS_COINGECKO_URL=http://127.0.0.1:PORT MARKETS_YAHOO_URL=http://127.0.0.1:PORT \
+    #   MARKETS_FRANKFURTER_URL=http://127.0.0.1:PORT bin/markets snapshot
     import argparse
     import signal
 
@@ -159,7 +188,7 @@ if __name__ == "__main__":
         srv.handler("*", throttled)
         srv.routes = _Everything(throttled)
     else:
-        yahoo_routes(coingecko_routes(srv))
+        frankfurter_routes(yahoo_routes(coingecko_routes(srv)))
     srv.start()
     print(srv.base_url, flush=True)
     signal.signal(signal.SIGINT, lambda *a: srv.stop())

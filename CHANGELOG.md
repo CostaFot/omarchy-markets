@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.0
+
+- The portfolio: a quantity per instrument and, if you like, what you paid per unit. The Portfolio page pins the totals first (value, today's move, total return, what could not be converted) and lists each holding as `AAPL · 10 sh` with its value, today's P&L and total return. An instrument's page gets Add to portfolio, then Edit holding and Remove from portfolio; the holding form takes the quantity and the cost, Enter saves, Tab switches field.
+- Holdings in other currencies are converted into one reporting currency (`portfolioCurrency`, USD by default) with the ECB's daily rates from Frankfurter: one keyless request an hour at most, cached in `fx-rates.json`. A pence-quoted stock shows as `£1,545.20 (≈$2,083.41)`. A currency the ECB does not publish stays in the list in its own money and is counted in "N holdings not converted"; a rates outage says so on the page and leaves the total partial.
+- The strip can show the portfolio: `strip: "portfolio"` is the total and today's move alone, `favorites+portfolio` puts it before the favorites, where trimming for width cannot drop it.
+- Helper: `portfolio set SYM[:CAT] [CAT] [NAME] QUANTITY [COST]` and `portfolio remove SYM`; every snapshot and membership document carries `portfolio` (positions with every string, totals, a note) and `held`; held symbols are priced with the watchlist. Minor-unit codes are a table now (`GBp GBX ZAc ILA`). `status` reports `holdings` and `portfolio_currency`.
+- 149 offline tests; the test shim points every provider at a closed local port unless a test says otherwise, so nothing can reach the internet by accident.
+
 ## 0.5.0
 
 - The chart on an instrument's page: 1D, 1W, 1M, 1Y and 5Y, switched with `←`/`→`, `h`/`l`, the keys `1`–`5` or the tabs. The line is coloured by the range's direction, the min and max are labelled at the right edge, the first and last times sit under the plot, and the day chart of a stock or currency draws yesterday's close as a dashed line. Under it, the move across the range: `▼ -$85.49 (-0.11%) · 1D`.

@@ -41,6 +41,27 @@ class CurrencyNormalization(unittest.TestCase):
         self.assertEqual(fmt.normalize_stock_quote("GBp", 12345, 100), ("GBP", 123.45, 1.0))
         self.assertEqual(fmt.normalize_stock_quote("gbx", 200, 2), ("GBP", 2.0, 0.02))
 
+    def test_minor_units_table(self):
+        self.assertEqual(fmt.currency_scale("GBp"), ("GBP", 0.01))
+        self.assertEqual(fmt.currency_scale("GBP"), ("GBP", 1.0))
+        self.assertEqual(fmt.currency_scale("ZAc"), ("ZAR", 0.01))
+        self.assertEqual(fmt.currency_scale("ila"), ("ILS", 0.01))
+        self.assertEqual(fmt.currency_scale("zar"), ("ZAR", 1.0))
+        self.assertTrue(fmt.is_pence("gbx"))
+        self.assertFalse(fmt.is_pence("GBP"))
+
+    def test_quantities_drop_trailing_zeros_and_never_group(self):
+        self.assertEqual(fmt.quantity(10), "10")
+        self.assertEqual(fmt.quantity(0.5), "0.5")
+        self.assertEqual(fmt.quantity("10.000"), "10")
+        self.assertEqual(fmt.quantity(30000), "30000")
+        self.assertEqual(fmt.quantity(0.123456789), "0.12345679")
+        self.assertEqual(fmt.quantity("junk"), "0")
+        self.assertEqual(fmt.holding_text("AAPL", 10, "stock"), "AAPL · 10 sh")
+        self.assertEqual(fmt.holding_text("EURUSD", 1000, "currency"), "EURUSD · 1000 units")
+        self.assertEqual(fmt.pct_signed(1.2), "+1.20")
+        self.assertEqual(fmt.pct_signed(-0.8), "-0.80")
+
     def test_missing_currency_defaults_to_usd(self):
         self.assertEqual(fmt.normalize_stock_quote("", 10, 1), ("USD", 10, 1))
         self.assertEqual(fmt.normalize_stock_quote(None, 10, 1), ("USD", 10, 1))

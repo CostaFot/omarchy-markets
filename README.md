@@ -4,7 +4,7 @@ Stocks, crypto and currencies in the [Omarchy](https://omarchy.org) bar. A live 
 
 A port of the [Markets extension for Command Palette](https://github.com/CostaFot/MarketExtension) on Windows.
 
-> Work in progress. Version 0.5.0 has the bar strip and a panel with search, watchlist, favorites and a page per instrument with a 1D–5Y chart, with crypto priced through CoinGecko and stocks, indices and currencies through Yahoo Finance. No API keys. Portfolio and news come later.
+> Work in progress. Version 0.6.0 has the bar strip and a panel with search, watchlist, favorites, a portfolio and a page per instrument with a 1D–5Y chart, with crypto priced through CoinGecko and stocks, indices and currencies through Yahoo Finance. No API keys. News comes later.
 
 ## Install
 
@@ -25,16 +25,20 @@ The strip lists your favorites as `BTC $77,250 ▲ +0.3%`, the value in your the
 
 Out of the box the favorites are BTC, ETH and SOL.
 
+The strip can show your portfolio instead, or as well: `strip: "portfolio"` is the holdings' total and today's move, `favorites+portfolio` puts that before the favorites.
+
 ## The panel
 
-It opens on a hub: Search, Watchlist, Favorites, and the pages that are not built yet. Pages stack; Escape or Backspace walks back, Escape on the hub closes.
+It opens on a hub: Search, Watchlist, Favorites, Portfolio, and the pages that are not built yet. Pages stack; Escape or Backspace walks back, Escape on the hub closes.
 
 - **Search** takes a symbol or a name and looks it up when you press Enter, never while you type. Results come from both providers, tagged Stock, Crypto or Currency, and say whether the row is already on your watchlist. Enter on a result opens it.
 - **Watchlist** lists what you track grouped into Stocks, Crypto and Currencies, priced. Type to filter by symbol or name; Tab moves from the box to the list for `j`/`k`, `/` goes back. The star on a row toggles the favorite.
 - **Favorites** is the same for the starred set, the one the bar strip shows.
-- **An instrument's page** shows the price and change, a chart over 1D, 1W, 1M, 1Y or 5Y with the move across that range under it, then Add or Remove for the watchlist and for favorites, labelled for its current state. The day chart of a stock or currency marks yesterday's close with a dashed line. A symbol you found through search is priced on the way in; Add appears once it has a price.
+- **Portfolio** pins the totals first: what your holdings are worth, today's move, the total return where you recorded what you paid, and how many holdings could not be converted. Under it, one row per holding as `AAPL · 10 sh` with its value, today's P&L and total return. Holdings in other currencies are converted into your portfolio currency (USD unless you say otherwise) with the ECB's daily rates, shown as `£1,545.20 (≈$2,083.41)`.
+- **An instrument's page** shows the price and change, a chart over 1D, 1W, 1M, 1Y or 5Y with the move across that range under it, then Add or Remove for the watchlist and for favorites, labelled for its current state, then Add to portfolio, or Edit holding and Remove from portfolio once it is held. The holding form takes how much you hold and, if you like, the average price you paid per unit in the instrument's currency; Enter saves. The day chart of a stock or currency marks yesterday's close with a dashed line. A symbol you found through search is priced on the way in; Add appears once it has a price.
 
 ![An instrument's page](assets/detail-chart.png)
+![The portfolio](assets/portfolio.png)
 
 | Key | Does |
 |---|---|
@@ -44,6 +48,7 @@ It opens on a hub: Search, Watchlist, Favorites, and the pages that are not buil
 | Tab, `/` | From the box to the list, and back |
 | `←` / `→`, `h` / `l`, `1`–`5` | Chart range on an instrument's page |
 | `r` | Refresh now |
+| Enter, Tab | In the holding form: save, next field |
 | Esc, Backspace | Back; Esc on the hub closes |
 
 From a keybinding or a script:
@@ -51,7 +56,7 @@ From a keybinding or a script:
 ```bash
 omarchy-shell costafot.markets toggle              # also open, close, show, hide
 omarchy-shell costafot.markets refresh
-omarchy-shell costafot.markets page watchlist      # hub, search, watchlist, favorites
+omarchy-shell costafot.markets page watchlist      # hub, search, watchlist, favorites, portfolio
 omarchy-shell costafot.markets add DOGE crypto     # stock, crypto or currency
 omarchy-shell costafot.markets favorite DOGE       # toggles; NEW:crypto for a symbol not yet tracked
 omarchy-shell costafot.markets status | jq         # what this bar shows: page, staleness, strip, chart
@@ -64,9 +69,10 @@ Inline on the plugin's entry in `~/.config/omarchy/shell.json`, or through `omar
 | Key | Default | Meaning |
 |---|---|---|
 | `refreshMinutes` | `10` | Poll interval; `0` turns polling off (the panel still refreshes when opened) |
-| `strip` | `"favorites"` | What the strip lists: `favorites` or `watchlist` |
+| `strip` | `"favorites"` | What the strip lists: `favorites`, `watchlist`, `portfolio` (the total and today's move) or `favorites+portfolio` |
 | `stripShowPrice` | `true` | Off shows only the change percentage |
 | `stripMax` | `6` | Most entries the strip lists before trimming for width |
+| `portfolioCurrency` | `"USD"` | Currency for the portfolio totals; other holdings are converted into it |
 | `showRateLimitErrors` | `true` | Off hides the amber rate-limit banner in the panel |
 
 ## The helper
@@ -80,12 +86,16 @@ bin/markets search sol | jq '.results[0]'
 bin/markets candles AAPL 5Y | jq '.series | {range_change_text, first_label, last_label}'
 bin/markets watchlist add TSLA stock | jq '.instruments | length'   # priced once, named by the provider
 bin/markets favorite remove TSLA | jq '.strip'
+bin/markets portfolio set HSBA.L stock HSBC 100 | jq '.portfolio.totals.value_text'   # quantity, then an optional cost per unit
+bin/markets portfolio set BTC crypto Bitcoin 0.5 30000 | jq -c '.portfolio.positions[] | [.holding_text, .value_text, .return_text]'
+bin/markets portfolio remove BTC | jq '.held'
 ```
 
 **Leaves your machine:**
 
 - The crypto symbols you track go to CoinGecko (`api.coingecko.com`) for prices, search results and chart history. No key, no account.
 - The stock, index and currency symbols you track go to Yahoo Finance (`query1.finance.yahoo.com`) for the same. No key, no account.
+- When the portfolio holds something priced in a currency other than your portfolio currency, the two currency codes go to Frankfurter (`api.frankfurter.dev`) for the ECB's daily rate, at most once an hour. No key, no account. Quantities never leave the machine.
 
 Nothing else. No telemetry.
 
@@ -108,5 +118,7 @@ Stock, index and currency prices come from an unofficial Yahoo Finance endpoint.
 **Can I add `EURUSD=X` or `^GSPC`?** Yes. Yahoo's spellings work anywhere a symbol does; a currency pair is stored as `EURUSD`.
 
 **Why does search need Enter?** Both providers rate-limit keyless callers, and a lookup per keystroke would burn that budget on half-typed words. Typing filters the lists you already have for free; only Enter asks the network.
+
+**A holding says "not converted".** Its currency is not one the ECB publishes a rate for, or the rates could not be fetched this hour. The row shows its own money and the total leaves it out until a rate is known.
 
 **The strip is not green and red.** The colours come from the active theme's `colors.toml`: `green`/`red`, else the ANSI `color2`/`color1`, else the theme accent for up and urgent for down.
