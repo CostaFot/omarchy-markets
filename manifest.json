@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "costafot.markets",
+  "name": "Markets",
+  "version": "0.1.0",
+  "author": "CostaFot",
+  "license": "MIT",
+  "description": "Stocks, crypto and currencies in the bar: a live ticker strip plus a keyboard-driven panel with search, watchlist, favorites, portfolio, news and charts.",
+  "kinds": ["bar-widget"],
+  "entryPoints": { "barWidget": "BarWidget.qml" },
+  "barWidget": {
+    "displayName": "Markets",
+    "description": "Live prices for the instruments you follow. Click for the panel.",
+    "category": "Info",
+    "aliases": ["markets", "stocks", "crypto", "ticker"],
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}
