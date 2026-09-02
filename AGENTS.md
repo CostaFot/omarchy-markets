@@ -45,6 +45,7 @@ Category of a bare symbol: the tracked entry's category, else `currency` for a 6
 - **`snapshot --max-age S` is how multiple bars share one fetch.** It is a pure cache read when every observed symbol was attempted within S seconds. The QML poller uses 30.
 - **CoinGecko public tier, verified live 2026-09-02:** `/coins/markets?symbols=btc&include_tokens=top` works (top-ranked coin per symbol); `ids=` is used whenever the id is known (seed, search result, learned). `market_chart?days>365` → HTTP 401, so 5Y clamps to 365 with a note in `series.message`. `days=30` returns hourly points (721), thinned to 300 by `downsample()`. Rate limit is unpublished and low: at most two calls per poll, one per chart.
 - **All HTTP goes through `http.get_json`**: 1 MiB cap read one byte at a time (so the deadline is checked between reads), redirects refused, 429 retried at most 3 times honouring `Retry-After`, giving up when the wait would exceed 8 s. `http.RATE_LIMITED` is process-wide like the C# `RateLimitSignal`. `MARKETS_BACKOFF_SCALE=0` makes tests instant.
+- **Yahoo Finance (session 3) refuses default library user agents.** `python-urllib/3.14` and curl's default get HTTP 429; our `costafot.markets/<version>` is accepted (verified 2026-09-03). `http.get` already sends it on every request; do not drop it. Yahoo is unofficial: a 404, 429 or shape change must become `valid:false` rows, never an exception.
 - **Keys never in a URL.** CoinGecko's optional key is a header (`x-cg-demo-api-key`); `http.redact()` masks `apikey/token/key` in `MARKETS_DEBUG` output. Nothing logs a body.
 - **Formatting is Python's job** (`fmt.py`), rounding half-up to match .NET's `decimal.ToString`. QML renders strings and picks a colour from `dir`; it never formats a number.
 - **Favorites seed diverges from Windows on purpose** (BTC/ETH/SOL starred) so the strip is not empty on first run.
@@ -56,6 +57,7 @@ Category of a bare symbol: the tracked entry's category, else `currency` for a 6
 ```bash
 python3 -m unittest discover -s tests -v          # offline, ~2 s
 omarchy plugin validate /home/costa/Work/omarchy-markets
+/usr/lib/qt6/bin/qmllint -I /usr/share/omarchy/shell *.qml          # not on PATH; from session 2 on
 MARKETS_STATE_DIR=$(mktemp -d) bin/markets snapshot | jq '.strip'   # live
 MARKETS_DEBUG=1 bin/markets quotes BTC >/dev/null                    # request log on stderr
 ```
@@ -73,4 +75,6 @@ Every QML `Text` sets `textFormat: Text.PlainText` (remote strings are rendered;
 
 ## Roadmap (one session each; details in the plan file)
 
-2 bar strip + watchlist panel · 3 hub, search, favorites, detail, membership · 4 chart, ranges, rate-limit banner · 5 portfolio · 6 keys (secret-tool), demo mode, settings page · 7 Twelve Data, Frankfurter, Finnhub quotes · 8 news + ticker · 9 release polish 1.0.0
+2 bar strip + watchlist panel · 3 Yahoo Finance provider, keyless stocks/indices/FX, search, 1D–5Y candles (Python only) · 4 hub, search, favorites, detail, membership · 5 chart, ranges, rate-limit banner · 6 portfolio (Frankfurter rates only) · 7 keys (secret-tool), demo mode, settings page · 8 optional keyed providers: Twelve Data, Finnhub quotes · 9 news + ticker · 10 release polish 1.0.0
+
+Revised 2026-09-03 after reviewing stochi, omarchy-stocks and OmaStockTicker; what was borrowed and what was rejected is in `~/.claude/plans/hey-i-found-3-ticklish-cake.md`.

@@ -39,4 +39,4 @@ Nothing else. No telemetry.
 
 **Is this financial advice?** No. Prices are delayed and best effort.
 
-**Why is AAPL not priced?** Stocks and currencies need a provider that is not wired up yet. They arrive with Twelve Data and Frankfurter support.
+**Why is AAPL not priced?** Stocks and currencies need a provider that is not wired up yet. They arrive in the next data-core release, keyless, through Yahoo Finance.
