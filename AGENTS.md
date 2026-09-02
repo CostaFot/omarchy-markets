@@ -130,6 +130,6 @@ Every QML `Text` sets `textFormat: Text.PlainText` (remote strings are rendered;
 
 ## Roadmap (one session each; details in the plan file)
 
-~~2 bar strip + watchlist panel~~ (done, 0.2.0) · ~~3 Yahoo Finance provider~~ (done, 0.3.0) · ~~4 hub, search, favorites, detail, membership~~ (done, 0.4.0) · ~~5 chart, ranges, rate-limit banner~~ (done, 0.5.0) · ~~6 portfolio (Frankfurter rates only)~~ (done, 0.6.0) · **7 keys (secret-tool), demo mode, settings page** · 8 optional keyed providers: Twelve Data, Finnhub quotes · 9 news + ticker · 10 release polish 1.0.0
+~~2 bar strip + watchlist panel~~ (done, 0.2.0) · ~~3 Yahoo Finance provider~~ (done, 0.3.0) · ~~4 hub, search, favorites, detail, membership~~ (done, 0.4.0) · ~~5 chart, ranges, rate-limit banner~~ (done, 0.5.0) · ~~6 portfolio (Frankfurter rates only)~~ (done, 0.6.0) · **7 keys (secret-tool), settings page; removes the demo-mode stubs** (demo mode dropped 2026-09-03: keyless providers made it pointless and a toggle that paints invented prices is a footgun) · 8 optional keyed providers: Twelve Data, Finnhub quotes · 9 news + ticker · 10 release polish 1.0.0
 
 Revised 2026-09-03 after reviewing stochi, omarchy-stocks and OmaStockTicker; what was borrowed and what was rejected is in `~/.claude/plans/hey-i-found-3-ticklish-cake.md`.
