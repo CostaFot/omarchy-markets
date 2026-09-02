@@ -4,11 +4,14 @@ Before committing, re-read this file, the README and CHANGELOG against what actu
 
 The multi-session port plan (architecture, per-session scope, acceptance criteria) lives in `~/.claude/plans/alright-i-would-like-mossy-gosling.md`. The Windows original is `~/Work/MarketExtension` (C#); `~/Work/tickerbar` is a reference for the Quickshell side.
 
-## What exists (0.1.0)
+## What exists (0.2.0)
 
-Only the data core. No widget yet — `BarWidget.qml` is a placeholder that makes the manifest validate.
+The data core plus the first QML: the bar strip and a one-page watchlist panel.
 
 ```
+BarWidget.qml                strip: coloured PlainText runs, width degradation, Loader(Panel.qml), IpcHandler
+Panel.qml                    Panel > KeyboardPanel > PanelKeyCatcher > Flickable > rows; owns the Store
+Store.qml                    QtObject: runs bin/markets via Process, holds the snapshot, poll Timer, theme colours
 bin/markets                  entry: fixes sys.path, calls marketslib.cli.main
 bin/marketslib/cli.py        argv → one JSON line, exit 0, always
 bin/marketslib/repo.py       provider routing, snapshot, strip, search, candles, membership
@@ -23,6 +26,13 @@ tests/                       stdlib unittest; fakeserver.py + fixtures/, no real
 ```
 
 State dir: `${XDG_STATE_HOME:-~/.local/state}/omarchy/costafot.markets/` (`MARKETS_STATE_DIR` overrides). Files: `watchlist.json`, `quotes-cache.json`, `candles-cache.json`, `coin-ids.json`. QML never touches them.
+
+## The QML side
+
+- **BarWidget.qml** loads `Panel.qml` once (`Loader { active: true }`) and injects `bar settings anchorItem hostWidget` on every `bar`/`settings` change. The panel is held as an untyped `var`: naming the type `Panel` collides with the `qs.Ui` base. The strip reads `store.strip` and paints `label` in the bar foreground and `value_text` in `store.dirColor(dir)`; invalid entries are dimmed. Width degradation (`stripMaxWidth → fitCount → pieces`) is tickerbar's model of Bar.qml's sections and centre anchor, copied; a truncated strip ends in `…`, a stale one in the pause glyph, and below the glyph's width the widget hides. `openPanelIndicatorWidth` tells the bar how wide the open-panel mark is. IPC target `costafot.markets`: `open close show hide toggle refresh`; `refresh` uses `broadcast()` so every monitor's instance refetches.
+- **Store.qml** is the only place the helper is run. `run(args, onDone)`: one `Process` at a time through `sh -c 'exec "$0" "$@"'`, last-command-wins queue, both the exit code and the collected stdout must land before a run is finalised (300 ms fallback timer), 1 MiB tripwire on the collector. `refresh(force)` is `snapshot --max-age (force ? 0 : 30)`. A document with `strip`/`quotes` replaces the snapshot even when `ok:false`; a document with `error` sets `lastError`/`stale` but never blanks the prices. Non-snapshot documents merge `quotes instruments favorites strip` into the snapshot. `settingsJson` serialises only the keys the helper knows; a change of that string (not of the `settings` object) refetches. First fetch is `Component.onCompleted: Qt.callLater(refresh)`.
+- **Theme colours** live in `Store.upColor`/`downColor`: a `FileView` on `Color.currentThemePath + "/colors.toml"` with `watchChanges`, parsed for `green`/`red`, then `color2`/`color1`, then `Color.accent`/`Color.urgent`. The ANSI fallback matters: Costa's own "Catppuccin Mocha" user theme has no `green`/`red` keys (verified 2026-09-03), only the stock themes do. `flat` colours like `up`.
+- **Panel.qml** builds a flat `rows` array (`header sep instrument note attribution footer`) from the store and renders it in a `Repeater` inside a `Flickable`; instrument and attribution rows are `CursorSurface` and take the cursor; `ensureCursorVisible()` scrolls on j/k. `r` refreshes (force), Escape closes, Enter on an attribution row opens its URL; Enter on an instrument does nothing until the detail page (S4). Height cap `Style.space(760)` fits the seed watchlist without scrolling. Opening the panel refreshes with `--max-age 30`.
 
 ## The helper contract
 
@@ -51,30 +61,37 @@ Category of a bare symbol: the tracked entry's category, else `currency` for a 6
 - **Favorites seed diverges from Windows on purpose** (BTC/ETH/SOL starred) so the strip is not empty on first run.
 - **State writes are atomic and 0600** (`state.write_json_atomic`); a corrupt `watchlist.json` is moved to `.bak.<ts>` and re-seeded, reported once as `error.code state_corrupt`.
 - The manifest's `version` is the single source of truth (`marketslib.plugin_version()` reads it); bump it with the CHANGELOG in the same commit.
+- **A fresh plugin dir needs `omarchy-shell shell rescanPlugins` before `omarchy plugin enable` knows it** (the enable otherwise says "not known" and the journal logs `PluginRegistry.setEnabled: unknown plugin`). Done once on 2026-09-03; the symlink is in place.
+- **qmllint needs a `qs` import root.** `-I /usr/share/omarchy/shell` alone fails to import `qs.Commons`; make a directory containing a symlink `qs -> /usr/share/omarchy/shell` and pass that with `-I`. Baseline noise that cannot be fixed: `Member … not found on type "QObject"` for everything reached through `bar` (typed `QtObject` by the base) and the `QProcess::ExitStatus` warning on `onExited`. Yeet and tickerbar lint to the same set; anything else is ours.
 
 ## Testing
 
 ```bash
 python3 -m unittest discover -s tests -v          # offline, ~2 s
 omarchy plugin validate /home/costa/Work/omarchy-markets
-/usr/lib/qt6/bin/qmllint -I /usr/share/omarchy/shell *.qml          # not on PATH; from session 2 on
+mkdir -p /tmp/qmlimports && ln -sfn /usr/share/omarchy/shell /tmp/qmlimports/qs
+/usr/lib/qt6/bin/qmllint -I /tmp/qmlimports *.qml | grep -v 'on type "QObject"'   # qmllint is not on PATH
 MARKETS_STATE_DIR=$(mktemp -d) bin/markets snapshot | jq '.strip'   # live
 MARKETS_DEBUG=1 bin/markets quotes BTC >/dev/null                    # request log on stderr
 ```
 
-## Dev loop (from session 2 on)
+## Dev loop
 
 ```bash
-ln -s ~/Work/omarchy-markets ~/.config/omarchy/plugins/costafot.markets
-omarchy plugin enable costafot.markets right
+ln -s ~/Work/omarchy-markets ~/.config/omarchy/plugins/costafot.markets   # done
+omarchy-shell shell rescanPlugins && omarchy plugin enable costafot.markets right   # done
 omarchy restart shell        # after EVERY QML edit — inotify does not follow the symlink
 journalctl -t omarchy-shell -f | grep -i markets
+omarchy-shell costafot.markets toggle; wtype j; wtype r; wtype -k Escape   # keyboard path without touching the keyboard
+grim -g "1200,0 1360x800" -s 1 panel.png                                   # the panel opens under the widget, top right
 ```
+
+Verified live on 2026-09-03 (single 2560×1440 monitor, Catppuccin Mocha): strip, panel, IPC toggle/refresh, j/k/r/Escape, theme switch to Gruvbox and back recolours without restart. Not verified: width degradation to fewer entries and the glyph (needs a narrower bar or a second monitor; the code is tickerbar's, unchanged in logic).
 
 Every QML `Text` sets `textFormat: Text.PlainText` (remote strings are rendered; the marketplace review blocks otherwise). Settings are written with one batched `updateEntryInline` per user action. No co-author trailers on commits; never amend; commit only when asked.
 
 ## Roadmap (one session each; details in the plan file)
 
-2 bar strip + watchlist panel · 3 Yahoo Finance provider, keyless stocks/indices/FX, search, 1D–5Y candles (Python only) · 4 hub, search, favorites, detail, membership · 5 chart, ranges, rate-limit banner · 6 portfolio (Frankfurter rates only) · 7 keys (secret-tool), demo mode, settings page · 8 optional keyed providers: Twelve Data, Finnhub quotes · 9 news + ticker · 10 release polish 1.0.0
+~~2 bar strip + watchlist panel~~ (done, 0.2.0) · **3 Yahoo Finance provider**, keyless stocks/indices/FX, search, 1D–5Y candles (Python only) · 4 hub, search, favorites, detail, membership · 5 chart, ranges, rate-limit banner · 6 portfolio (Frankfurter rates only) · 7 keys (secret-tool), demo mode, settings page · 8 optional keyed providers: Twelve Data, Finnhub quotes · 9 news + ticker · 10 release polish 1.0.0
 
 Revised 2026-09-03 after reviewing stochi, omarchy-stocks and OmaStockTicker; what was borrowed and what was rejected is in `~/.claude/plans/hey-i-found-3-ticklish-cake.md`.

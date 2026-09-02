@@ -2,18 +2,81 @@
   "schemaVersion": 1,
   "id": "costafot.markets",
   "name": "Markets",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": "CostaFot",
   "license": "MIT",
   "description": "Stocks, crypto and currencies in the bar: a live ticker strip plus a keyboard-driven panel with search, watchlist, favorites, portfolio, news and charts.",
-  "kinds": ["bar-widget"],
-  "entryPoints": { "barWidget": "BarWidget.qml" },
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
   "barWidget": {
     "displayName": "Markets",
     "description": "Live prices for the instruments you follow. Click for the panel.",
     "category": "Info",
-    "aliases": ["markets", "stocks", "crypto", "ticker"],
+    "aliases": [
+      "markets",
+      "stocks",
+      "crypto",
+      "ticker"
+    ],
     "allowMultiple": false,
-    "defaultSection": "right"
+    "defaultSection": "right",
+    "defaults": {
+      "refreshMinutes": 10,
+      "strip": "favorites",
+      "stripShowPrice": true,
+      "stripMax": 6,
+      "showRateLimitErrors": true
+    },
+    "schema": [
+      {
+        "key": "refreshMinutes",
+        "type": "integer",
+        "label": "Refresh every (minutes)",
+        "description": "0 turns polling off; the panel still refreshes when opened.",
+        "min": 0,
+        "max": 120,
+        "step": 1,
+        "defaultValue": 10
+      },
+      {
+        "key": "strip",
+        "type": "enum",
+        "label": "Strip shows",
+        "description": "Which instruments the bar strip lists.",
+        "options": [
+          "favorites",
+          "watchlist"
+        ],
+        "defaultValue": "favorites"
+      },
+      {
+        "key": "stripShowPrice",
+        "type": "boolean",
+        "label": "Show price in strip",
+        "description": "Off shows only the change percentage.",
+        "defaultValue": true
+      },
+      {
+        "key": "stripMax",
+        "type": "integer",
+        "label": "Strip entries",
+        "description": "Most entries the strip lists before trimming for width.",
+        "min": 1,
+        "max": 12,
+        "step": 1,
+        "defaultValue": 6
+      },
+      {
+        "key": "showRateLimitErrors",
+        "type": "boolean",
+        "label": "Show rate-limit notices",
+        "description": "Off hides the provider's rate-limit line in the panel.",
+        "defaultValue": true
+      }
+    ]
   }
 }
