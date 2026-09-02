@@ -55,8 +55,12 @@ BarWidget {
 
   //   omarchy-shell costafot.markets toggle
   //   omarchy-shell costafot.markets refresh
+  //   omarchy-shell costafot.markets page watchlist      # hub search watchlist favorites
+  //   omarchy-shell costafot.markets add DOGE crypto
+  //   omarchy-shell costafot.markets favorite DOGE       # toggles; DOGE:crypto for a new symbol
   // `refresh` reaches every bar instance (one per monitor), not just the one
-  // that owns the IPC target.
+  // that owns the IPC target. The mutations go through the helper like any
+  // panel action, so every instance sees them on its next poll.
   IpcHandler {
     target: "costafot.markets"
     function open(): void { root.open() }
@@ -65,6 +69,9 @@ BarWidget {
     function hide(): void { root.close() }
     function toggle(): void { root.togglePanel() }
     function refresh(): void { root.broadcast("refresh") }
+    function page(name: string): void { if (root.marketPanel) root.marketPanel.showPage(name) }
+    function add(symbol: string, category: string): void { if (root.marketPanel) root.marketPanel.addSymbol(symbol, category) }
+    function favorite(symbol: string): void { if (root.marketPanel) root.marketPanel.favoriteSymbol(symbol) }
   }
 
   // ---- Strip model ---------------------------------------------------------

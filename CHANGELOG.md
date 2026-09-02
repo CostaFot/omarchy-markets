@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.0
+
+- The panel is now a hub: Search, Watchlist, Favorites, and placeholders for Portfolio, News, Data sources and Settings. Pages stack; Escape and Backspace walk back, Escape on the hub closes, and backing out of a page lands on the row that opened it with the filter still typed.
+- Search: type a symbol or name and press Enter; one helper call, results from both providers with a Stock/Crypto/Currency tag and the row's current membership. Typing never touches the network.
+- Watchlist and Favorites pages filter as you type (symbol or name); Tab moves from the box to the list for j/k, `/` goes back to the box. The star on a row toggles the favorite with the mouse.
+- Detail page for any instrument: symbol, name, price, change, then Add/Remove for the watchlist and favorites, labelled for the current state, with a short confirmation. An untracked symbol is priced on the way in, and Add appears once it has a price. The chart comes in the next version.
+- `omarchy-shell costafot.markets page watchlist`, `add DOGE crypto`, `favorite TSLA` (toggle; `favorite NEW:crypto` for a symbol not yet tracked).
+- Helper: `snapshot --max-age S --extra SYM:CAT` now fetches only the symbols older than S (an untracked detail symbol costs one call, not a refetch of the watchlist); `watchlist add` and `favorite add` accept `SYM:CAT`, and a nameless add is priced once so the entry gets the provider's name; membership documents carry the tracked quotes so the panel re-renders with no second call.
+- 115 offline tests.
+
 ## 0.3.0
 
 - Stocks, indices and currencies are priced, searched and charted through Yahoo Finance with no key: `AAPL`, `HSBA.L` (pence converted to pounds), `^GSPC`, `EURUSD`. Crypto stays on CoinGecko.

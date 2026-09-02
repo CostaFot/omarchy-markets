@@ -4,7 +4,7 @@ Stocks, crypto and currencies in the [Omarchy](https://omarchy.org) bar. A live 
 
 A port of the [Markets extension for Command Palette](https://github.com/CostaFot/MarketExtension) on Windows.
 
-> Work in progress. Version 0.3.0 has the bar strip and the watchlist panel, with crypto priced through CoinGecko and stocks, indices and currencies through Yahoo Finance. No API keys. Search, favorites and charts have a helper but no panel page yet.
+> Work in progress. Version 0.4.0 has the bar strip and a panel with search, watchlist, favorites and a detail page per instrument, with crypto priced through CoinGecko and stocks, indices and currencies through Yahoo Finance. No API keys. Charts, portfolio and news come later.
 
 ## Install
 
@@ -23,19 +23,34 @@ rm -rf ~/.local/state/omarchy/costafot.markets
 
 The strip lists your favorites as `BTC $77,250 ▲ +0.3%`, the value in your theme's green or red. When the bar runs out of room the strip drops entries from the end, then collapses to a single glyph; hover it for the full text. Left click opens the panel, middle click refreshes.
 
-Out of the box the favorites are BTC, ETH and SOL. The panel lists the watchlist grouped into Stocks, Crypto and Currencies.
+Out of the box the favorites are BTC, ETH and SOL.
+
+## The panel
+
+It opens on a hub: Search, Watchlist, Favorites, and the pages that are not built yet. Pages stack; Escape or Backspace walks back, Escape on the hub closes.
+
+- **Search** takes a symbol or a name and looks it up when you press Enter, never while you type. Results come from both providers, tagged Stock, Crypto or Currency, and say whether the row is already on your watchlist. Enter on a result opens it.
+- **Watchlist** lists what you track grouped into Stocks, Crypto and Currencies, priced. Type to filter by symbol or name; Tab moves from the box to the list for `j`/`k`, `/` goes back. The star on a row toggles the favorite.
+- **Favorites** is the same for the starred set, the one the bar strip shows.
+- **An instrument's page** shows the price and change, then Add or Remove for the watchlist and for favorites, labelled for its current state. A symbol you found through search is priced on the way in; Add appears once it has a price. The chart arrives in a later version.
 
 | Key | Does |
 |---|---|
 | `j` / `k`, arrows | Move |
+| Enter | Open the row, or apply the action |
+| Type | Filter the list, or the search query |
+| Tab, `/` | From the box to the list, and back |
 | `r` | Refresh now |
-| Esc | Close |
+| Esc, Backspace | Back; Esc on the hub closes |
 
 From a keybinding or a script:
 
 ```bash
-omarchy-shell costafot.markets toggle    # also open, close, show, hide
+omarchy-shell costafot.markets toggle              # also open, close, show, hide
 omarchy-shell costafot.markets refresh
+omarchy-shell costafot.markets page watchlist      # hub, search, watchlist, favorites
+omarchy-shell costafot.markets add DOGE crypto     # stock, crypto or currency
+omarchy-shell costafot.markets favorite DOGE       # toggles; NEW:crypto for a symbol not yet tracked
 ```
 
 ## Settings
@@ -59,6 +74,8 @@ bin/markets snapshot | jq '.strip'
 bin/markets quotes AAPL HSBA.L EURUSD '^GSPC' | jq -c '.quotes[] | [.symbol, .price_text, .change_text]'
 bin/markets search sol | jq '.results[0]'
 bin/markets candles AAPL 5Y | jq '.series.range_change_text'
+bin/markets watchlist add TSLA stock | jq '.instruments | length'   # priced once, named by the provider
+bin/markets favorite remove TSLA | jq '.strip'
 ```
 
 **Leaves your machine:**
@@ -81,5 +98,7 @@ Stock, index and currency prices come from an unofficial Yahoo Finance endpoint.
 **HSBA.L shows pounds but Yahoo shows pence.** London quotes arrive in pence; the plugin converts them so the row reads `£15.45` like the rest.
 
 **Can I add `EURUSD=X` or `^GSPC`?** Yes. Yahoo's spellings work anywhere a symbol does; a currency pair is stored as `EURUSD`.
+
+**Why does search need Enter?** Both providers rate-limit keyless callers, and a lookup per keystroke would burn that budget on half-typed words. Typing filters the lists you already have for free; only Enter asks the network.
 
 **The strip is not green and red.** The colours come from the active theme's `colors.toml`: `green`/`red`, else the ANSI `color2`/`color1`, else the theme accent for up and urgent for down.

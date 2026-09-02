@@ -3,10 +3,16 @@ import QtQuick
 import qs.Commons
 import qs.Ui
 
-// Popup for the Markets bar widget. This version has one page: the watchlist
-// grouped by class, with the helper's status lines and attribution under it.
-// The panel owns the Store, so the strip in the bar and the rows in here are
-// the same document.
+// Popup for the Markets bar widget: a hub that funnels into Search,
+// Watchlist and Favorites, and a detail page per instrument where
+// membership is managed. Pages live on a stack; Escape and Backspace walk
+// back, Escape on the hub closes. The panel owns the Store, so the strip in
+// the bar and the rows in here are the same document.
+//
+// Page renderers build one flat `rows` array and a Repeater paints it; the
+// only widget outside the list is the filter field the list pages start
+// with. While that field has focus the key catcher is blocked and the field
+// forwards Up/Down/Enter/Escape/Tab itself.
 Panel {
   id: root
   moduleName: "costafot.markets"
@@ -20,6 +26,7 @@ Panel {
   readonly property color contentForeground: bar ? bar.foreground : Color.foreground
   readonly property string contentFontFamily: bar ? bar.fontFamily : Style.font.family
   readonly property color mutedForeground: Qt.darker(contentForeground, 1.4)
+  readonly property color urgentForeground: bar ? bar.urgent : Color.urgent
 
   readonly property string pluginDir: {
     var dir = Qt.resolvedUrl(".").toString()
@@ -29,56 +36,383 @@ Panel {
   readonly property Store store: Store {
     pluginDir: root.pluginDir
     settings: root.settings
+    extras: root.detailExtras
   }
 
   function refresh() { store.refresh(true) }
 
+  // ---- Navigation ---------------------------------------------------------
+  // Each entry: { page, ...args, cursor, query } where cursor and query are
+  // saved on push and restored on pop, so backing out of a detail page lands
+  // on the row that opened it with the filter still typed.
+  property var stack: [{ page: "hub" }]
+  property var pendingStack: null
+  readonly property var current: stack[stack.length - 1]
+  readonly property string page: current.page
+  readonly property bool isHub: stack.length === 1
+  readonly property bool hasField: page === "search" || page === "watchlist" || page === "favorites"
+
+  readonly property var pageTitles: ({
+    hub: "Markets", search: "Search", watchlist: "Watchlist", favorites: "Favorites",
+    portfolio: "Portfolio", news: "News", sources: "Data sources", settings: "Settings"
+  })
+
+  function push(entry) {
+    var top = Object.assign({}, current, { cursor: selectedIndex, query: filterField.text })
+    stack = stack.slice(0, -1).concat([top, entry])
+    enterPage(entry)
+  }
+
+  function pop() {
+    if (stack.length <= 1) { root.close(); return }
+    var entry = stack[stack.length - 2]
+    stack = stack.slice(0, -1)
+    enterPage(entry)
+  }
+
+  function goHome() {
+    stack = [{ page: "hub" }]
+    enterPage(stack[0])
+  }
+
+  // IPC `page NAME`: open straight onto a page, with the hub under it.
+  function showPage(name) {
+    var target = pageTitles[name] !== undefined ? name : "hub"
+    var next = target === "hub" ? [{ page: "hub" }] : [{ page: "hub" }, { page: target }]
+    if (opened) {
+      stack = next
+      enterPage(next[next.length - 1])
+    } else {
+      pendingStack = next
+      root.open()
+    }
+  }
+
+  function openDetail(symbol, name, category) {
+    push({ page: "detail", symbol: symbol, name: name || symbol, category: category || "stock" })
+  }
+
+  function enterPage(entry) {
+    listScroll.contentY = 0
+    filterField.text = entry.query || ""
+    if (entry.page === "detail" && !instrumentFor(entry.symbol)) store.refresh(false)
+    Qt.callLater(function() {
+      var wanted = entry.cursor
+      selectedIndex = (wanted !== undefined && root.isCursorRow(root.rows[wanted])) ? wanted : root.firstCursorIndex()
+      root.focusForPage()
+      root.ensureCursorVisible()
+    })
+  }
+
+  function focusForPage() {
+    if (hasField) filterField.forceActiveFocus()
+    else keyCatcher.forceActiveFocus()
+  }
+
+  // The untracked symbols on the stack, priced alongside the watchlist while
+  // their detail page is up.
+  readonly property var detailExtras: {
+    var out = []
+    var tracked = store.instruments
+    for (var i = 0; i < stack.length; i++) {
+      var e = stack[i]
+      if (e.page !== "detail") continue
+      var known = false
+      for (var t = 0; t < tracked.length; t++) if (tracked[t].symbol === e.symbol) { known = true; break }
+      if (!known) out.push(e.symbol + ":" + e.category)
+    }
+    return out
+  }
+
+  function instrumentFor(symbol) {
+    var list = store.instruments
+    for (var i = 0; i < list.length; i++) if (list[i].symbol === symbol) return list[i]
+    return null
+  }
+
+  // ---- Search state -------------------------------------------------------
+  // Enter-only: typing changes the query, only the action row (or Enter on
+  // it) runs the one helper call. Results show while the field still says
+  // the query they belong to.
+  property string searchedQuery: ""
+  property var searchResults: null
+  property var searchAttribution: []
+  property bool searching: false
+  readonly property string filterText: filterField.text
+  readonly property string query: filterText.trim()
+
+  function runSearch() {
+    var q = query
+    if (q === "" || searching) return
+    searching = true
+    store.run(["search", q], function(doc) {
+      root.searching = false
+      if (!doc || !Array.isArray(doc.results)) {
+        root.searchResults = null
+        root.searchedQuery = ""
+        return
+      }
+      root.searchResults = doc.results
+      root.searchedQuery = q
+      root.searchAttribution = Array.isArray(doc.attribution) ? doc.attribution : []
+      Qt.callLater(function() {
+        root.selectedIndex = root.firstIndexOfType("instrument")
+        if (root.selectedIndex === -1) root.selectedIndex = root.firstCursorIndex()
+        root.ensureCursorVisible()
+      })
+    })
+  }
+
+  // ---- Membership ---------------------------------------------------------
+  // Mutations stay on the page; the helper answers with the new membership
+  // and strip, the store merges them, the rows re-render in place. A short
+  // notice says what happened (a silent flip left people unsure).
+  property string notice: ""
+  property bool noticeUrgent: false
+
+  function showNotice(text, urgent) {
+    notice = text
+    noticeUrgent = urgent === true
+    noticeTimer.restart()
+  }
+
+  function membership(args, done) {
+    store.run(args, function(doc) {
+      if (doc && doc.error && doc.error.message) root.showNotice(doc.error.message, true)
+      else if (doc) root.showNotice(done, false)
+    })
+  }
+
+  function setWatchlist(symbol, category, name, on) {
+    membership(on ? ["watchlist", "add", symbol, category, name || symbol] : ["watchlist", "remove", symbol],
+               (on ? "Added " : "Removed ") + symbol + (on ? " to" : " from") + " the watchlist")
+  }
+
+  function setFavorite(symbol, category, name, on) {
+    membership(on ? ["favorite", "add", symbol, category, name || symbol] : ["favorite", "remove", symbol],
+               (on ? "Added " : "Removed ") + symbol + (on ? " to" : " from") + " favorites")
+  }
+
+  function toggleFavorite(symbol, category, name) {
+    setFavorite(symbol, category, name, store.favorites.indexOf(symbol) === -1)
+  }
+
+  // IPC `add SYM CAT` and `favorite SYM[:CAT]`.
+  function addSymbol(symbol, category) {
+    var sym = String(symbol || "").trim().toUpperCase()
+    if (sym === "") return
+    membership(["watchlist", "add", sym, String(category || "").trim().toLowerCase()], "Added " + sym + " to the watchlist")
+  }
+
+  function favoriteSymbol(spec) {
+    var s = String(spec || "").trim().toUpperCase()
+    if (s === "") return
+    var sym = s.split(":")[0]
+    var on = store.favorites.indexOf(sym) === -1
+    membership(on ? ["favorite", "add", s] : ["favorite", "remove", sym],
+               (on ? "Added " : "Removed ") + sym + (on ? " to" : " from") + " favorites")
+  }
+
   // ---- Rows ---------------------------------------------------------------
   readonly property var categoryOrder: ["stock", "crypto", "currency"]
   readonly property var categoryLabels: ({ stock: "Stocks", crypto: "Crypto", currency: "Currencies" })
+  readonly property var categoryNames: ({ stock: "Stock", crypto: "Crypto", currency: "Currency" })
 
-  readonly property var rows: {
-    var out = []
+  function matchesFilter(inst) {
+    var f = filterText.trim().toLowerCase()
+    if (f === "") return true
+    return String(inst.symbol).toLowerCase().indexOf(f) !== -1
+        || String(inst.name || "").toLowerCase().indexOf(f) !== -1
+  }
+
+  function instrumentRow(inst, favorites, quotes) {
+    var q = quotes[inst.symbol] || null
+    var valid = q ? q.valid === true : false
+    var detail = ""
+    if (!valid) detail = store.busy && !q ? "Pricing…" : "Not priced"
+    else if (q.stale) detail = "Last known price"
+    return {
+      type: "instrument",
+      symbol: inst.symbol,
+      name: inst.name || inst.symbol,
+      category: inst.category,
+      label: inst.symbol + " · " + (inst.name || ""),
+      favorite: favorites.indexOf(inst.symbol) !== -1,
+      starButton: true,
+      valid: valid,
+      priceText: q && valid ? q.price_text : "—",
+      changeText: q && valid ? q.change_text : "",
+      dir: q ? q.dir : "flat",
+      detail: detail
+    }
+  }
+
+  function hubRows() {
     var s = root.store
-    var quotes = s.quotes
-    var favorites = s.favorites
-    var instruments = s.instruments
+    var counts = { watchlist: 0, favorites: s.favorites.length }
+    for (var i = 0; i < s.instruments.length; i++) if (s.instruments[i].in_watchlist !== false) counts.watchlist++
+    return [
+      { type: "action", icon: "", label: "Search", detail: "Look up a stock, crypto or currency", page: "search" },
+      { type: "action", icon: "", label: "Watchlist", detail: counts.watchlist + " tracked", page: "watchlist" },
+      { type: "action", icon: "★", label: "Favorites", detail: counts.favorites + " starred, shown in the bar", page: "favorites" },
+      { type: "action", icon: "", label: "Portfolio", detail: "Coming in a later version", page: "portfolio", muted: true },
+      { type: "action", icon: "", label: "News", detail: "Coming in a later version", page: "news", muted: true },
+      { type: "action", icon: "", label: "Data sources", detail: "Who prices what", page: "sources" },
+      { type: "action", icon: "", label: "Settings", detail: "Coming in a later version", page: "settings", muted: true }
+    ]
+  }
+
+  function watchlistRows() {
+    var s = root.store
+    var out = []
     var first = true
+    var shown = 0
     for (var c = 0; c < categoryOrder.length; c++) {
       var cat = categoryOrder[c]
       var group = []
-      for (var i = 0; i < instruments.length; i++) {
-        var inst = instruments[i]
-        if (inst.category === cat && inst.in_watchlist !== false) group.push(inst)
+      for (var i = 0; i < s.instruments.length; i++) {
+        var inst = s.instruments[i]
+        if (inst.category === cat && inst.in_watchlist !== false && matchesFilter(inst)) group.push(inst)
       }
       if (group.length === 0) continue
       if (!first) out.push({ type: "sep" })
       first = false
       out.push({ type: "header", label: categoryLabels[cat] })
-      for (var g = 0; g < group.length; g++) {
-        var q = quotes[group[g].symbol] || null
-        var valid = q ? q.valid === true : false
-        var detail = ""
-        if (!valid) detail = "No provider yet"
-        else if (q.stale) detail = "Last known price"
-        out.push({
-          type: "instrument",
-          symbol: group[g].symbol,
-          label: group[g].symbol + " · " + (group[g].name || ""),
-          favorite: favorites.indexOf(group[g].symbol) !== -1,
-          valid: valid,
-          priceText: q && valid ? q.price_text : "—",
-          changeText: q && valid ? q.change_text : "",
-          dir: q ? q.dir : "flat",
-          detail: detail
-        })
+      for (var g = 0; g < group.length; g++) out.push(instrumentRow(group[g], s.favorites, s.quotes))
+      shown += group.length
+    }
+    if (shown === 0) {
+      if (query !== "") out.push({ type: "note", label: "Nothing on the watchlist matches \"" + query + "\"" })
+      else if (s.hasData) out.push({ type: "note", label: "Your watchlist is empty", detail: "Open an instrument and add it from its detail page." })
+      else out.push({ type: "note", label: s.busy ? "Fetching prices…" : "No prices yet", detail: "The first snapshot is on its way." })
+    }
+    return out
+  }
+
+  function favoritesRows() {
+    var s = root.store
+    var out = []
+    for (var i = 0; i < s.instruments.length; i++) {
+      var inst = s.instruments[i]
+      if (inst.is_favorite === true && matchesFilter(inst)) out.push(instrumentRow(inst, s.favorites, s.quotes))
+    }
+    if (out.length === 0) {
+      if (query !== "") out.push({ type: "note", label: "No favorite matches \"" + query + "\"" })
+      else out.push({ type: "note", label: "No favorites yet", detail: "Open an instrument and star it from its detail page. Favorites are what the bar strip shows." })
+    }
+    return out
+  }
+
+  function searchRows() {
+    var out = []
+    var q = query
+    if (q === "") {
+      out.push({ type: "note", label: "Type a symbol or a name, then press Enter.",
+                 detail: "AAPL, HSBA.L, ^GSPC, EURUSD, doge…" })
+      return out
+    }
+    out.push({ type: "action", icon: "", label: "Search markets for \"" + q + "\"",
+               detail: searching ? "Searching…" : "Enter to search", action: "search" })
+    if (searchResults !== null && searchedQuery.toLowerCase() === q.toLowerCase()) {
+      out.push({ type: "sep" })
+      if (searchResults.length === 0) {
+        out.push({ type: "note", label: "No matches for \"" + q + "\"" })
+      } else {
+        out.push({ type: "header", label: "Results" })
+        for (var i = 0; i < searchResults.length; i++) {
+          var r = searchResults[i]
+          var fav = store.favorites.indexOf(r.symbol) !== -1
+          out.push({
+            type: "instrument",
+            symbol: r.symbol,
+            name: r.name || r.symbol,
+            category: r.category,
+            label: (fav ? "★ " : "") + r.symbol + " · " + (r.name || ""),
+            favorite: fav,
+            starButton: false,
+            valid: true,
+            priceText: categoryNames[r.category] || r.category,
+            changeText: "",
+            dir: "",
+            detail: r.subtitle_text || ""
+          })
+        }
+        for (var a = 0; a < searchAttribution.length; a++)
+          out.push({ type: "attribution", label: searchAttribution[a].label || "", url: searchAttribution[a].url || "" })
       }
     }
-    if (instruments.length === 0) {
-      out.push({ type: "note",
-                 label: s.hasData ? "The watchlist is empty" : (s.busy ? "Fetching prices…" : "No prices yet"),
-                 detail: s.hasData ? "" : "The first snapshot is on its way." })
+    return out
+  }
+
+  function detailRows() {
+    var e = current
+    var s = root.store
+    var inst = instrumentFor(e.symbol)
+    var q = s.quoteFor(e.symbol)
+    var valid = q ? q.valid === true : false
+    var name = inst ? inst.name : (q && q.name ? q.name : e.name)
+    var category = inst ? inst.category : e.category
+    var caption
+    if (valid) caption = (categoryNames[category] || category) + (q.currency ? " · " + q.currency : "") + (q.stale ? " · last known price" : "")
+    else if (s.busy) caption = "Pricing…"
+    else caption = "Not priced"
+    var out = [{
+      type: "hero", symbol: e.symbol, name: name, caption: caption, valid: valid,
+      priceText: valid ? q.price_text : "—", changeText: valid ? q.change_text : "", dir: q ? q.dir : "flat"
+    }]
+    out.push({ type: "sep" })
+    var inWatch = inst ? inst.in_watchlist === true : false
+    var isFav = inst ? inst.is_favorite === true : false
+    if (inst || valid) {
+      out.push({ type: "action", icon: inWatch ? "" : "", label: inWatch ? "Remove from watchlist" : "Add to watchlist",
+                 action: "watchlist", symbol: e.symbol, category: category, name: name, on: !inWatch })
+      out.push({ type: "action", icon: isFav ? "★" : "☆", label: isFav ? "Remove from favorites" : "Add to favorites",
+                 detail: isFav ? "" : "Favorites are what the bar strip shows",
+                 action: "favorite", symbol: e.symbol, category: category, name: name, on: !isFav })
+    } else if (s.busy) {
+      out.push({ type: "note", label: "Pricing " + e.symbol + "…", detail: "Add appears once a provider answers for it." })
+    } else {
+      out.push({ type: "note", label: e.symbol + " could not be priced", urgent: true,
+                 detail: (s.errorText !== "" ? s.errorText + ". " : "") + "Nothing to add until a provider answers for it; r retries." })
     }
+    if (notice !== "") {
+      out.push({ type: "sep" })
+      out.push({ type: "note", label: notice, urgent: noticeUrgent })
+    }
+    out.push({ type: "sep" })
+    out.push({ type: "note", label: "Chart and ranges arrive in a later version." })
+    return out
+  }
+
+  function soonRows() {
+    var out = []
+    if (page === "sources") {
+      out.push({ type: "note", label: "Stocks, indices and currencies", detail: "Yahoo Finance, no key. Unofficial and delayed; see the README." })
+      out.push({ type: "note", label: "Crypto", detail: "CoinGecko, no key." })
+      out.push({ type: "sep" })
+      out.push({ type: "note", label: "Keys for other providers, demo mode and this page's real form come in a later version." })
+    } else if (page === "settings") {
+      out.push({ type: "note", label: "The settings page comes in a later version.",
+                 detail: "Until then: omarchy bar set, or the costafot.markets entry in ~/.config/omarchy/shell.json." })
+    } else {
+      out.push({ type: "note", label: pageTitles[page] + " comes in a later version." })
+    }
+    return out
+  }
+
+  readonly property var rows: {
+    var s = root.store
+    var out = []
+    if (!isHub) out.push({ type: "title", label: page === "detail" ? current.symbol : (pageTitles[page] || page) })
+    var body
+    if (page === "hub") body = hubRows()
+    else if (page === "watchlist") body = watchlistRows()
+    else if (page === "favorites") body = favoritesRows()
+    else if (page === "search") body = searchRows()
+    else if (page === "detail") body = detailRows()
+    else body = soonRows()
+    out = out.concat(body)
+
     var status = s.statusRows
     var errorText = s.errorText
     if (status.length > 0 || errorText !== "") {
@@ -88,29 +422,59 @@ Panel {
       if (errorText !== "")
         out.push({ type: "note", label: errorText, urgent: true })
     }
-    var attribution = s.attribution
-    if (attribution.length > 0 || s.generatedAt > 0) {
-      out.push({ type: "sep" })
-      for (var a = 0; a < attribution.length; a++)
-        out.push({ type: "attribution", label: attribution[a].label || "", url: attribution[a].url || "" })
-      if (s.generatedAt > 0) {
-        var stamp = Qt.formatTime(new Date(s.generatedAt * 1000), "HH:mm")
-        out.push({ type: "footer",
-                   label: (s.stale ? "Last good update " : "Updated ") + stamp
-                          + (s.rateLimited ? " · rate-limited" : "")
-                          + (s.demo ? " · demo data" : "")
-                          + " · r refreshes" })
+    if (page !== "search") {
+      var attribution = s.attribution
+      if (attribution.length > 0 || s.generatedAt > 0) {
+        out.push({ type: "sep" })
+        for (var a = 0; a < attribution.length; a++)
+          out.push({ type: "attribution", label: attribution[a].label || "", url: attribution[a].url || "" })
+        if (s.generatedAt > 0) {
+          var stamp = Qt.formatTime(new Date(s.generatedAt * 1000), "HH:mm")
+          out.push({ type: "footer",
+                     label: (s.stale ? "Last good update " : "Updated ") + stamp
+                            + (s.rateLimited ? " · rate-limited" : "")
+                            + (s.demo ? " · demo data" : "") })
+        }
       }
     }
+    out.push({ type: "footer", label: keyHint() })
     return out
   }
 
+  function keyHint() {
+    if (page === "hub") return "j/k move · Enter opens · r refreshes · Esc closes"
+    if (page === "search") return "Enter searches, then opens · Tab to the list · Esc back"
+    if (hasField) return "Type to filter · ↑/↓ move · Enter opens · Esc back"
+    if (page === "detail") return "Enter applies · r refreshes · Esc back"
+    return "Esc or Backspace back"
+  }
+
+  // ---- Cursor -------------------------------------------------------------
   property int selectedIndex: -1
 
-  function isCursorRow(row) { return row && (row.type === "instrument" || row.type === "attribution") }
+  // Hover moves the cursor only when the pointer itself moved: rows that
+  // re-layout under a resting pointer (search results landing) get a
+  // synthetic move and must not steal the cursor from the keyboard.
+  property point lastPointer: Qt.point(-1, -1)
+
+  function hoverRow(index, item, x, y) {
+    var p = item.mapToItem(null, x, y)
+    if (p.x === lastPointer.x && p.y === lastPointer.y) return
+    lastPointer = p
+    selectedIndex = index
+  }
+
+  function isCursorRow(row) {
+    return row && (row.type === "instrument" || row.type === "attribution" || row.type === "action")
+  }
 
   function firstCursorIndex() {
     for (var i = 0; i < rows.length; i++) if (isCursorRow(rows[i])) return i
+    return -1
+  }
+
+  function firstIndexOfType(type) {
+    for (var i = 0; i < rows.length; i++) if (rows[i].type === type) return i
     return -1
   }
 
@@ -146,16 +510,36 @@ Panel {
     if (row.type === "attribution" && row.url) {
       root.close()
       Qt.openUrlExternally(row.url)
+    } else if (row.type === "instrument") {
+      openDetail(row.symbol, row.name, row.category)
+    } else if (row.type === "action") {
+      if (row.page) push({ page: row.page })
+      else if (row.action === "search") runSearch()
+      else if (row.action === "watchlist") setWatchlist(row.symbol, row.category, row.name, row.on)
+      else if (row.action === "favorite") setFavorite(row.symbol, row.category, row.name, row.on)
+    } else if (row.type === "title") {
+      pop()
     }
-    // Instrument rows open the detail page in a later version.
   }
 
   onOpenedChanged: {
     if (opened) {
       store.refresh(false)
-      selectedIndex = firstCursorIndex()
-      listScroll.contentY = 0
+      notice = ""
+      if (pendingStack) {
+        stack = pendingStack
+        pendingStack = null
+        enterPage(stack[stack.length - 1])
+      } else {
+        goHome()
+      }
     }
+  }
+
+  property Timer noticeTimer: Timer {
+    interval: 3000
+    repeat: false
+    onTriggered: root.notice = ""
   }
 
   KeyboardPanel {
@@ -164,165 +548,241 @@ Panel {
     owner: root.barIdentity
     bar: root.bar
     open: root.opened
-    focusTarget: keyCatcher
-    contentWidth: panel.fittedContentWidth(Style.space(360))
-    contentHeight: panel.fittedContentHeight(contentColumn.implicitHeight, Style.space(760))
+    focusTarget: root.hasField ? filterField : keyCatcher
+    contentWidth: panel.fittedContentWidth(Style.space(380))
+    contentHeight: panel.fittedContentHeight(
+      contentColumn.implicitHeight + (root.hasField ? filterField.height + Style.space(6) : 0), Style.space(760))
 
-    PanelKeyCatcher {
-      id: keyCatcher
+    // Unhandled keys from the catcher (it never accepts Backspace) land here.
+    Item {
+      id: pageArea
       anchors.fill: parent
-      clip: true
-      onMoveRequested: function(dx, dy) { if (dy !== 0) root.moveCursor(dy) }
-      onActivateRequested: root.activate(root.rows[root.selectedIndex])
-      onCloseRequested: root.close()
-      onTabRequested: function(direction) { root.switchPanel(direction) }
-      onTextKey: function(t) { if (t === "r" || t === "R") root.refresh() }
 
-      Flickable {
-        id: listScroll
+      Keys.onPressed: function(event) {
+        if (event.key === Qt.Key_Backspace && !filterField.activeFocus) {
+          root.pop()
+          event.accepted = true
+        }
+      }
+
+      PanelKeyCatcher {
+        id: keyCatcher
         anchors.fill: parent
-        contentWidth: width
-        contentHeight: contentColumn.implicitHeight
         clip: true
-        boundsBehavior: Flickable.StopAtBounds
-        interactive: contentHeight > height
+        blocked: filterField.activeFocus
+        onMoveRequested: function(dx, dy) { if (dy !== 0) root.moveCursor(dy) }
+        onActivateRequested: root.activate(root.rows[root.selectedIndex])
+        onCloseRequested: root.pop()
+        onTabRequested: function(direction) { root.switchPanel(direction) }
+        onTextKey: function(t) {
+          if (t === "r" || t === "R") root.refresh()
+          else if (t === "/" && root.hasField) filterField.forceActiveFocus()
+        }
 
-        Column {
-          id: contentColumn
-          width: listScroll.width
-          spacing: Style.space(2)
+        Item {
+                    anchors.fill: parent
 
-          Repeater {
-            id: rowRepeater
-            model: root.rows
+          // The filter / query box the list pages start in. Up/Down, Enter,
+          // Escape and Tab are forwarded; everything else edits the text.
+          TextField {
+            id: filterField
+            visible: root.hasField
+            anchors.top: parent.top
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.leftMargin: Style.space(8)
+            anchors.rightMargin: Style.space(8)
+            foreground: root.contentForeground
+            font.family: root.contentFontFamily
+            placeholderText: root.page === "search" ? "Symbol or name, then Enter"
+                           : root.page === "watchlist" ? "Filter the watchlist" : "Filter favorites"
 
-            delegate: Item {
-              id: rowItem
-              required property var modelData
-              required property int index
-
-              readonly property bool isInstrument: modelData.type === "instrument"
-              readonly property bool isAttribution: modelData.type === "attribution"
-              readonly property bool cursorable: isInstrument || isAttribution
-              readonly property bool hasCursor: cursorable && index === root.selectedIndex
-              readonly property bool twoLine: isInstrument && !!modelData.detail
-              readonly property color rowForeground: isInstrument && !modelData.valid
-                ? root.mutedForeground : root.contentForeground
-
-              width: contentColumn.width
-              height: modelData.type === "sep" ? Style.space(11)
-                : modelData.type === "header" ? headerLabel.implicitHeight + Style.space(8)
-                : modelData.type === "note" ? noteColumn.implicitHeight + Style.space(12)
-                : modelData.type === "footer" ? footerLabel.implicitHeight + Style.space(8)
-                : twoLine ? Style.space(44) : Style.space(32)
-
-              PanelSeparator {
-                visible: rowItem.modelData.type === "sep"
-                anchors.verticalCenter: parent.verticalCenter
-                foreground: root.contentForeground
+            Keys.onPressed: function(event) {
+              if (event.key === Qt.Key_Escape) {
+                root.pop()
+                event.accepted = true
+              } else if (event.key === Qt.Key_Down) {
+                root.moveCursor(1)
+                event.accepted = true
+              } else if (event.key === Qt.Key_Up) {
+                root.moveCursor(-1)
+                event.accepted = true
+              } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                root.activate(root.rows[root.selectedIndex])
+                event.accepted = true
+              } else if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
+                keyCatcher.forceActiveFocus()
+                event.accepted = true
+              } else if (event.key === Qt.Key_Backspace && text === "") {
+                root.pop()
+                event.accepted = true
               }
+            }
+          }
 
-              PanelSectionHeader {
-                id: headerLabel
-                visible: rowItem.modelData.type === "header"
-                text: rowItem.modelData.type === "header" ? rowItem.modelData.label : ""
-                foreground: root.contentForeground
-                fontFamily: root.contentFontFamily
-                anchors.bottom: parent.bottom
-                anchors.bottomMargin: Style.space(2)
-              }
+          Flickable {
+            id: listScroll
+            anchors.top: root.hasField ? filterField.bottom : parent.top
+            anchors.topMargin: root.hasField ? Style.space(6) : 0
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            contentWidth: width
+            contentHeight: contentColumn.implicitHeight
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+            interactive: contentHeight > height
 
-              Column {
-                id: noteColumn
-                visible: rowItem.modelData.type === "note"
-                width: parent.width - Style.space(16)
-                x: Style.space(8)
-                spacing: Style.space(3)
-                anchors.verticalCenter: parent.verticalCenter
+            Column {
+              id: contentColumn
+              width: listScroll.width
+              spacing: Style.space(2)
 
-                Text {
-                  width: parent.width
-                  textFormat: Text.PlainText
-                  text: rowItem.modelData.label || ""
-                  color: rowItem.modelData.urgent ? (root.bar ? root.bar.urgent : Color.urgent) : root.contentForeground
-                  font.family: root.contentFontFamily
-                  font.pixelSize: Style.font.caption
-                  wrapMode: Text.Wrap
-                }
+              Repeater {
+                id: rowRepeater
+                model: root.rows
 
-                Text {
-                  visible: !!rowItem.modelData.detail
-                  width: parent.width
-                  textFormat: Text.PlainText
-                  text: rowItem.modelData.detail || ""
-                  color: root.mutedForeground
-                  font.family: root.contentFontFamily
-                  font.pixelSize: Style.font.caption
-                  wrapMode: Text.Wrap
-                }
-              }
+                delegate: Item {
+                  id: rowItem
+                  required property var modelData
+                  required property int index
 
-              Text {
-                id: footerLabel
-                visible: rowItem.modelData.type === "footer"
-                width: parent.width - Style.space(16)
-                x: Style.space(8)
-                anchors.verticalCenter: parent.verticalCenter
-                textFormat: Text.PlainText
-                text: rowItem.modelData.type === "footer" ? rowItem.modelData.label : ""
-                color: root.mutedForeground
-                font.family: root.contentFontFamily
-                font.pixelSize: Style.font.caption
-                elide: Text.ElideRight
-              }
+                  readonly property string kind: modelData.type
+                  readonly property bool isInstrument: kind === "instrument"
+                  readonly property bool isAttribution: kind === "attribution"
+                  readonly property bool isAction: kind === "action"
+                  readonly property bool isTitle: kind === "title"
+                  readonly property bool cursorable: isInstrument || isAttribution || isAction
+                  readonly property bool hasCursor: cursorable && index === root.selectedIndex
+                  readonly property bool twoLine: (isInstrument || isAction) && !!modelData.detail
+                  readonly property color rowForeground: (isInstrument && !modelData.valid) || (isAction && modelData.muted === true)
+                    ? root.mutedForeground : root.contentForeground
 
-              CursorSurface {
-                visible: rowItem.cursorable
-                anchors.fill: parent
-                hasCursor: rowItem.hasCursor
-                foreground: root.contentForeground
-                accent: Color.accent
+                  width: contentColumn.width
+                  height: kind === "sep" ? Style.space(11)
+                    : kind === "header" ? headerLabel.implicitHeight + Style.space(8)
+                    : kind === "title" ? Style.space(30)
+                    : kind === "hero" ? heroColumn.implicitHeight + Style.space(16)
+                    : kind === "note" ? noteColumn.implicitHeight + Style.space(12)
+                    : kind === "footer" ? footerLabel.implicitHeight + Style.space(8)
+                    : twoLine ? Style.space(44) : Style.space(32)
 
-                // ★ SYM · Name                         $64,210.00  ▲ +1.20%
-                Row {
-                  visible: rowItem.isInstrument
-                  anchors.fill: parent
-                  anchors.leftMargin: Style.space(8)
-                  anchors.rightMargin: Style.space(8)
-                  spacing: Style.space(8)
-
-                  Text {
-                    width: Style.space(14)
-                    height: parent.height
-                    textFormat: Text.PlainText
-                    text: rowItem.modelData.favorite ? "★" : "☆"
-                    color: rowItem.modelData.favorite ? root.contentForeground : root.mutedForeground
-                    font.family: root.contentFontFamily
-                    font.pixelSize: Style.font.body
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
+                  PanelSeparator {
+                    visible: rowItem.kind === "sep"
+                    anchors.verticalCenter: parent.verticalCenter
+                    foreground: root.contentForeground
                   }
 
+                  PanelSectionHeader {
+                    id: headerLabel
+                    visible: rowItem.kind === "header"
+                    text: rowItem.kind === "header" ? rowItem.modelData.label : ""
+                    foreground: root.contentForeground
+                    fontFamily: root.contentFontFamily
+                    anchors.bottom: parent.bottom
+                    anchors.bottomMargin: Style.space(2)
+                  }
+
+                  // ‹ Page title — clicking it goes back.
+                  Item {
+                    visible: rowItem.isTitle
+                    anchors.fill: parent
+
+                    Row {
+                      anchors.fill: parent
+                      anchors.leftMargin: Style.space(8)
+                      spacing: Style.space(8)
+
+                      Text {
+                        height: parent.height
+                        textFormat: Text.PlainText
+                        text: "‹"
+                        color: root.mutedForeground
+                        font.family: root.contentFontFamily
+                        font.pixelSize: Style.font.title
+                        verticalAlignment: Text.AlignVCenter
+                      }
+
+                      Text {
+                        height: parent.height
+                        textFormat: Text.PlainText
+                        text: rowItem.isTitle ? rowItem.modelData.label : ""
+                        color: root.contentForeground
+                        font.family: root.contentFontFamily
+                        font.pixelSize: Style.font.title
+                        font.bold: true
+                        verticalAlignment: Text.AlignVCenter
+                      }
+                    }
+
+                    MouseArea {
+                      anchors.fill: parent
+                      cursorShape: Qt.PointingHandCursor
+                      onClicked: root.pop()
+                    }
+                  }
+
+                  // Detail hero: symbol, name, price, change.
                   Column {
-                    width: parent.width - Style.space(14) - valueColumn.width - parent.spacing * 2
+                    id: heroColumn
+                    visible: rowItem.kind === "hero"
+                    width: parent.width - Style.space(16)
+                    x: Style.space(8)
                     anchors.verticalCenter: parent.verticalCenter
-                    spacing: Style.space(1)
+                    spacing: Style.space(2)
 
                     Text {
                       width: parent.width
                       textFormat: Text.PlainText
-                      text: rowItem.modelData.label || ""
-                      color: rowItem.rowForeground
+                      text: rowItem.kind === "hero" ? rowItem.modelData.symbol : ""
+                      color: root.contentForeground
+                      font.family: root.contentFontFamily
+                      font.pixelSize: Style.font.heading
+                      font.bold: true
+                      elide: Text.ElideRight
+                    }
+
+                    Text {
+                      width: parent.width
+                      textFormat: Text.PlainText
+                      text: rowItem.kind === "hero" ? rowItem.modelData.name : ""
+                      color: root.mutedForeground
                       font.family: root.contentFontFamily
                       font.pixelSize: Style.font.body
                       elide: Text.ElideRight
                     }
 
+                    Item { width: 1; height: Style.space(6) }
+
+                    Row {
+                      width: parent.width
+                      spacing: Style.space(10)
+
+                      Text {
+                        textFormat: Text.PlainText
+                        text: rowItem.kind === "hero" ? rowItem.modelData.priceText : ""
+                        color: rowItem.kind === "hero" && rowItem.modelData.valid ? root.contentForeground : root.mutedForeground
+                        font.family: root.contentFontFamily
+                        font.pixelSize: Style.font.display
+                        font.bold: true
+                      }
+
+                      Text {
+                        visible: text !== ""
+                        anchors.bottom: parent.bottom
+                        anchors.bottomMargin: Style.space(4)
+                        textFormat: Text.PlainText
+                        text: rowItem.kind === "hero" ? rowItem.modelData.changeText : ""
+                        color: root.store.dirColor(rowItem.modelData.dir, root.contentForeground)
+                        font.family: root.contentFontFamily
+                        font.pixelSize: Style.font.title
+                      }
+                    }
+
                     Text {
-                      visible: rowItem.twoLine
                       width: parent.width
                       textFormat: Text.PlainText
-                      text: rowItem.modelData.detail || ""
+                      text: rowItem.kind === "hero" ? rowItem.modelData.caption : ""
                       color: root.mutedForeground
                       font.family: root.contentFontFamily
                       font.pixelSize: Style.font.caption
@@ -330,59 +790,214 @@ Panel {
                     }
                   }
 
-                  Row {
-                    id: valueColumn
-                    height: parent.height
-                    spacing: Style.space(8)
+                  Column {
+                    id: noteColumn
+                    visible: rowItem.kind === "note"
+                    width: parent.width - Style.space(16)
+                    x: Style.space(8)
+                    spacing: Style.space(3)
+                    anchors.verticalCenter: parent.verticalCenter
 
                     Text {
-                      height: parent.height
+                      width: parent.width
                       textFormat: Text.PlainText
-                      text: rowItem.modelData.priceText || ""
-                      color: rowItem.rowForeground
+                      text: rowItem.modelData.label || ""
+                      color: rowItem.modelData.urgent ? root.urgentForeground : root.contentForeground
                       font.family: root.contentFontFamily
-                      font.pixelSize: Style.font.body
-                      verticalAlignment: Text.AlignVCenter
+                      font.pixelSize: Style.font.caption
+                      wrapMode: Text.Wrap
                     }
 
                     Text {
-                      visible: text !== ""
-                      height: parent.height
+                      visible: !!rowItem.modelData.detail
+                      width: parent.width
                       textFormat: Text.PlainText
-                      text: rowItem.modelData.changeText || ""
-                      color: root.store.dirColor(rowItem.modelData.dir, rowItem.rowForeground)
+                      text: rowItem.modelData.detail || ""
+                      color: root.mutedForeground
                       font.family: root.contentFontFamily
-                      font.pixelSize: Style.font.body
-                      verticalAlignment: Text.AlignVCenter
-
-                      Behavior on color {
-                        enabled: !root.bar || root.bar.foregroundAnimationEnabled
-                        ColorAnimation { duration: 160 }
-                      }
+                      font.pixelSize: Style.font.caption
+                      wrapMode: Text.Wrap
                     }
                   }
-                }
 
-                Text {
-                  visible: rowItem.isAttribution
-                  anchors.fill: parent
-                  anchors.leftMargin: Style.space(8)
-                  anchors.rightMargin: Style.space(8)
-                  textFormat: Text.PlainText
-                  text: rowItem.modelData.label || ""
-                  color: root.mutedForeground
-                  font.family: root.contentFontFamily
-                  font.pixelSize: Style.font.caption
-                  verticalAlignment: Text.AlignVCenter
-                  elide: Text.ElideRight
-                }
+                  Text {
+                    id: footerLabel
+                    visible: rowItem.kind === "footer"
+                    width: parent.width - Style.space(16)
+                    x: Style.space(8)
+                    anchors.verticalCenter: parent.verticalCenter
+                    textFormat: Text.PlainText
+                    text: rowItem.kind === "footer" ? rowItem.modelData.label : ""
+                    color: root.mutedForeground
+                    font.family: root.contentFontFamily
+                    font.pixelSize: Style.font.caption
+                    elide: Text.ElideRight
+                  }
 
-                MouseArea {
-                  anchors.fill: parent
-                  hoverEnabled: true
-                  cursorShape: rowItem.isAttribution ? Qt.PointingHandCursor : Qt.ArrowCursor
-                  onPositionChanged: root.selectedIndex = rowItem.index
-                  onClicked: root.activate(rowItem.modelData)
+                  CursorSurface {
+                    visible: rowItem.cursorable
+                    anchors.fill: parent
+                    hasCursor: rowItem.hasCursor
+                    foreground: root.contentForeground
+                    accent: Color.accent
+
+                    MouseArea {
+                      anchors.fill: parent
+                      hoverEnabled: true
+                      cursorShape: rowItem.isAttribution ? Qt.PointingHandCursor : Qt.ArrowCursor
+                      onPositionChanged: function(mouse) { root.hoverRow(rowItem.index, rowItem, mouse.x, mouse.y) }
+                      onClicked: root.activate(rowItem.modelData)
+                    }
+
+                    // ★ SYM · Name                         $64,210.00  ▲ +1.20%
+                    Row {
+                      visible: rowItem.isInstrument
+                      anchors.fill: parent
+                      anchors.leftMargin: Style.space(4)
+                      anchors.rightMargin: Style.space(8)
+                      spacing: Style.space(6)
+
+                      Item {
+                        width: Style.space(22)
+                        height: parent.height
+
+                        // Rows that manage membership get a real star button;
+                        // search results only navigate (as on Windows).
+                        PanelActionButton {
+                          visible: rowItem.isInstrument && rowItem.modelData.starButton === true
+                          anchors.centerIn: parent
+                          z: 1
+                          iconText: rowItem.modelData.favorite ? "★" : "☆"
+                          tooltipText: rowItem.modelData.favorite ? "Remove from favorites" : "Add to favorites"
+                          foreground: rowItem.modelData.favorite ? root.contentForeground : root.mutedForeground
+                          fontFamily: root.contentFontFamily
+                          fontSize: Style.font.body
+                          onClicked: root.toggleFavorite(rowItem.modelData.symbol, rowItem.modelData.category, rowItem.modelData.name)
+                        }
+                      }
+
+                      Column {
+                        width: parent.width - Style.space(22) - valueColumn.width - parent.spacing * 2
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: Style.space(1)
+
+                        Text {
+                          width: parent.width
+                          textFormat: Text.PlainText
+                          text: rowItem.modelData.label || ""
+                          color: rowItem.rowForeground
+                          font.family: root.contentFontFamily
+                          font.pixelSize: Style.font.body
+                          elide: Text.ElideRight
+                        }
+
+                        Text {
+                          visible: rowItem.twoLine
+                          width: parent.width
+                          textFormat: Text.PlainText
+                          text: rowItem.modelData.detail || ""
+                          color: root.mutedForeground
+                          font.family: root.contentFontFamily
+                          font.pixelSize: Style.font.caption
+                          elide: Text.ElideRight
+                        }
+                      }
+
+                      Row {
+                        id: valueColumn
+                        height: parent.height
+                        spacing: Style.space(8)
+
+                        Text {
+                          height: parent.height
+                          textFormat: Text.PlainText
+                          text: rowItem.modelData.priceText || ""
+                          color: rowItem.rowForeground
+                          font.family: root.contentFontFamily
+                          font.pixelSize: Style.font.body
+                          verticalAlignment: Text.AlignVCenter
+                        }
+
+                        Text {
+                          visible: text !== ""
+                          height: parent.height
+                          textFormat: Text.PlainText
+                          text: rowItem.modelData.changeText || ""
+                          color: root.store.dirColor(rowItem.modelData.dir, rowItem.rowForeground)
+                          font.family: root.contentFontFamily
+                          font.pixelSize: Style.font.body
+                          verticalAlignment: Text.AlignVCenter
+
+                          Behavior on color {
+                            enabled: !root.bar || root.bar.foregroundAnimationEnabled
+                            ColorAnimation { duration: 160 }
+                          }
+                        }
+                      }
+                    }
+
+                    //  Label                                      detail below
+                    Row {
+                      visible: rowItem.isAction
+                      anchors.fill: parent
+                      anchors.leftMargin: Style.space(8)
+                      anchors.rightMargin: Style.space(8)
+                      spacing: Style.space(10)
+
+                      Text {
+                        width: Style.space(18)
+                        height: parent.height
+                        textFormat: Text.PlainText
+                        text: rowItem.isAction ? (rowItem.modelData.icon || "") : ""
+                        color: rowItem.rowForeground
+                        font.family: root.contentFontFamily
+                        font.pixelSize: Style.font.body
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                      }
+
+                      Column {
+                        width: parent.width - Style.space(18) - parent.spacing
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: Style.space(1)
+
+                        Text {
+                          width: parent.width
+                          textFormat: Text.PlainText
+                          text: rowItem.isAction ? (rowItem.modelData.label || "") : ""
+                          color: rowItem.rowForeground
+                          font.family: root.contentFontFamily
+                          font.pixelSize: Style.font.body
+                          elide: Text.ElideRight
+                        }
+
+                        Text {
+                          visible: rowItem.twoLine
+                          width: parent.width
+                          textFormat: Text.PlainText
+                          text: rowItem.modelData.detail || ""
+                          color: root.mutedForeground
+                          font.family: root.contentFontFamily
+                          font.pixelSize: Style.font.caption
+                          elide: Text.ElideRight
+                        }
+                      }
+                    }
+
+                    Text {
+                      visible: rowItem.isAttribution
+                      anchors.fill: parent
+                      anchors.leftMargin: Style.space(8)
+                      anchors.rightMargin: Style.space(8)
+                      textFormat: Text.PlainText
+                      text: rowItem.modelData.label || ""
+                      color: root.mutedForeground
+                      font.family: root.contentFontFamily
+                      font.pixelSize: Style.font.caption
+                      verticalAlignment: Text.AlignVCenter
+                      elide: Text.ElideRight
+                    }
+                  }
                 }
               }
             }

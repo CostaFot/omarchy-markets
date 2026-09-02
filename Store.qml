@@ -131,8 +131,16 @@ QtObject {
   property var pendingRun: null
   property var currentRun: null
 
+  // Untracked symbols a detail page is showing, as "SYM:category". Every
+  // snapshot prices them too, so the hero does not blank on the next poll;
+  // with --max-age only the symbols older than the window are fetched, so
+  // an extra costs one call for itself, not a refetch of the watchlist.
+  property var extras: []
+
   function refresh(force) {
-    run(["snapshot", "--max-age", force ? "0" : "30"], null)
+    var args = ["snapshot", "--max-age", force ? "0" : "30"]
+    if (extras.length > 0) args = args.concat(["--extra"], extras)
+    run(args, null)
   }
 
   // Runs one helper command. `onDone(doc)` gets the parsed document (or null
@@ -213,10 +221,14 @@ QtObject {
         snapshot = d
       } else {
         var merged = snapshot ? Object.assign({}, snapshot) : { schema_version: 1, command: "snapshot" }
-        var sections = ["quotes", "instruments", "favorites", "strip"]
+        var sections = ["instruments", "favorites", "strip"]
         for (var i = 0; i < sections.length; i++)
           if (d[sections[i]] !== undefined) merged[sections[i]] = d[sections[i]]
-        if (d.attribution !== undefined) merged.attribution = d.attribution
+        // Quotes merge additively: a membership document carries the tracked
+        // symbols only, and a detail page may be showing an untracked one.
+        if (d.quotes !== undefined) merged.quotes = Object.assign({}, merged.quotes || {}, d.quotes)
+        // A mutation that fetched nothing credits nobody; keep the snapshot's.
+        if (Array.isArray(d.attribution) && d.attribution.length > 0) merged.attribution = d.attribution
         if (d.status_rows !== undefined) merged.status_rows = d.status_rows
         merged.rate_limited = d.rate_limited === true
         snapshot = merged

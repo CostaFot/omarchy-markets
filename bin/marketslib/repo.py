@@ -203,17 +203,27 @@ class Repository:
 
     # ---- documents -------------------------------------------------------
     def snapshot(self, now, max_age=None, extra=()):
+        """With --max-age only the symbols attempted longer than S seconds ago
+        are fetched; the rest are cache reads. A detail page for an untracked
+        symbol (`--extra`) therefore costs one call for that symbol, not a
+        refetch of the whole watchlist, and a second bar polling inside S
+        fetches nothing at all (`cached: true`)."""
         instruments = self.observed(extra)
-        symbols = [i.symbol for i in instruments]
-        cached = max_age is not None and bool(symbols) and self.quote_cache.fresh(symbols, max_age, now)
-        if cached:
-            quotes = [self.quote_cache.get(s) or Quote.invalid(i) for s, i in zip(symbols, instruments)]
-            for q in quotes:
+        if max_age is None:
+            stale = list(instruments)
+        else:
+            stale = [i for i in instruments if now - self.quote_cache.fetched_at(i.symbol) > max_age]
+        fetched = {q.symbol: q for q in self.refresh(stale, now)} if stale else {}
+        quotes = []
+        for inst in instruments:
+            q = fetched.get(inst.symbol)
+            if q is None:
+                q = self.quote_cache.get(inst.symbol) or Quote.invalid(inst)
                 p = self.provider_for(q.category) if q.valid else None
                 if p:
                     self.served_by.add(p.id)
-        else:
-            quotes = self.refresh(instruments, now)
+            quotes.append(q)
+        cached = bool(instruments) and not stale
         by_symbol = {q.symbol: q for q in quotes}
         return {
             "cached": cached,
@@ -324,12 +334,16 @@ class Repository:
 
     # ---- membership ------------------------------------------------------
     def membership_payload(self, now):
+        """What a mutation returns so the panel re-renders with no second
+        call: the tracked set, the strip, and the cached quotes for the
+        tracked symbols (a just-added symbol was priced on the way in)."""
         by_symbol = {}
         for inst in self.watchlist.tracked():
             q = self.quote_cache.get(inst.symbol)
             if q:
                 by_symbol[inst.symbol] = q
         return {
+            "quotes": {s: q.to_dict() for s, q in by_symbol.items()},
             "instruments": self.watchlist.rows(),
             "favorites": [i.symbol for i in self.watchlist.favorites()],
             "strip": self.strip(by_symbol),

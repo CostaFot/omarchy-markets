@@ -101,6 +101,18 @@ class RepositoryRouting(unittest.TestCase):
         self.assertIn("DOGE", doc["quotes"])
         self.assertEqual(len(doc["instruments"]), 9)  # extra is observed, not tracked
 
+    def test_max_age_refreshes_only_the_symbols_older_than_it(self):
+        self.repo.snapshot(now=1000)
+        self.assertEqual(self.crypto.calls, 1)
+        doc = self.repo.snapshot(now=1010, max_age=30, extra=["DOGE:crypto"])
+        self.assertFalse(doc["cached"])
+        self.assertEqual(self.crypto.calls, 2)
+        self.assertTrue(doc["quotes"]["DOGE"]["valid"])
+        self.assertTrue(doc["quotes"]["BTC"]["valid"])
+        doc = self.repo.snapshot(now=1020, max_age=30, extra=["DOGE:crypto"])
+        self.assertTrue(doc["cached"])
+        self.assertEqual(self.crypto.calls, 2)
+
     def test_strip_modes_and_cap(self):
         self.repo.settings = Settings({"strip": "watchlist", "stripMax": 2, "stripShowPrice": False})
         doc = self.repo.snapshot(now=1000)

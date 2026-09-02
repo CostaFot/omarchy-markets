@@ -110,6 +110,38 @@ class Cli(unittest.TestCase):
         self.assertEqual(len(doc["instruments"]), 9)
         self.assertEqual(self.run_cli("watchlist", "add", "NEW")["error"]["code"], "bad_args")
 
+    def test_membership_accepts_the_colon_spelling_and_learns_the_name(self):
+        # TSLA reuses the AAPL fixture, so the learned name is Apple's: the
+        # point is that a nameless add prices the symbol once and keeps the
+        # provider's name instead of the bare ticker.
+        self.server.handler("/v8/finance/chart/TSLA", self.server.routes["/v8/finance/chart/AAPL"])
+        doc = self.run_cli("favorite", "add", "TSLA:stock")
+        self.assertTrue(doc["ok"], doc["error"])
+        tsla = [i for i in doc["instruments"] if i["symbol"] == "TSLA"][0]
+        self.assertEqual(tsla["name"], "Apple Inc.")
+        self.assertTrue(tsla["is_favorite"] and not tsla["in_watchlist"])
+        self.assertIn("TSLA", [e["label"] for e in doc["strip"]])
+        self.assertEqual(self.run_cli("favorite", "add", "NEWCOIN")["error"]["code"], "bad_args")
+        doc = self.run_cli("watchlist", "add", "DOGE:crypto")
+        doge = [i for i in doc["instruments"] if i["symbol"] == "DOGE"][0]
+        self.assertEqual(doge["name"], "DOGE")  # not in the fixture: unpriced, still added
+
+    def test_snapshot_extra_refreshes_only_the_stale_symbol(self):
+        self.run_cli("snapshot")
+        spark_hits = len(self.server.hits("/v8/finance/spark"))
+        doc = self.run_cli("snapshot", "--max-age", "60", "--extra", "DOGE:crypto")
+        self.assertFalse(doc["cached"])
+        self.assertIn("DOGE", doc["quotes"])
+        self.assertFalse(doc["quotes"]["DOGE"]["valid"])
+        self.assertTrue(doc["quotes"]["AAPL"]["valid"])
+        self.assertEqual(len(doc["instruments"]), 9)
+        self.assertEqual(len(self.server.hits("/coins/markets")), 2)
+        self.assertEqual(len(self.server.hits("/v8/finance/spark")), spark_hits)
+        self.assertEqual(len([h for h in self.server.hits() if h[0].startswith("/v8/finance/chart/")]), 6)
+        doc = self.run_cli("snapshot", "--max-age", "60", "--extra", "DOGE:crypto")
+        self.assertTrue(doc["cached"])
+        self.assertEqual(len(self.server.hits("/coins/markets")), 2)
+
     def test_settings_shape_the_strip(self):
         doc = self.run_cli("--settings", '{"strip":"watchlist","stripMax":2}', "snapshot")
         self.assertEqual([e["label"] for e in doc["strip"]], ["AAPL", "MSFT"])

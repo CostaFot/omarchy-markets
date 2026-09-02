@@ -33,8 +33,8 @@ USAGE = (
     "  quotes SYM[:CAT] ...\n"
     "  search QUERY\n"
     "  candles SYM[:CAT] 1D|1W|1M|1Y|5Y\n"
-    "  watchlist add SYM CAT NAME... | watchlist remove SYM\n"
-    "  favorite add SYM [CAT NAME...] | favorite remove SYM"
+    "  watchlist add SYM[:CAT] [CAT] [NAME...] | watchlist remove SYM\n"
+    "  favorite add SYM[:CAT] [CAT] [NAME...] | favorite remove SYM"
 )
 
 
@@ -181,14 +181,18 @@ def cmd_candles(repo, args, now):
     return repo.candles(args[0], rng, now)
 
 
-def _instrument_args(repo, args, need_category):
-    """SYM [CAT NAME...] -> Instrument. Falls back to the tracked entry's details."""
+def _instrument_args(repo, args, now):
+    """SYM[:CAT] [CAT] [NAME...] -> Instrument. Falls back to the tracked
+    entry's details; a new symbol needs its category. A new symbol added
+    without a name is priced once so the entry carries the provider's name
+    (and the strip has a price for it) instead of the bare ticker."""
     if not args:
         raise BadArgs("missing symbol")
-    sym, implied_ids = repo.canonical_symbol(args[0])
+    spec, _, spec_cat = str(args[0]).partition(":")
+    sym, implied_ids = repo.canonical_symbol(spec)
     if not sym:
         raise BadArgs("missing symbol")
-    cat = args[1].lower() if len(args) > 1 else ""
+    cat = args[1].lower() if len(args) > 1 else spec_cat.strip().lower()
     name = " ".join(args[2:]).strip() if len(args) > 2 else ""
     known = repo.watchlist.instrument(sym)
     if cat and not is_category(cat):
@@ -196,17 +200,18 @@ def _instrument_args(repo, args, need_category):
     if not cat:
         if known:
             cat = known.category
-        elif need_category:
-            raise BadArgs("category (stock|crypto|currency) is required for a new symbol")
         else:
-            cat = repo.guess_category(implied_ids.get("yahoo") or sym)
-    if not name:
-        name = known.name if known else sym
+            raise BadArgs("category (stock|crypto|currency) is required for a new symbol")
     ids = dict(known.provider_ids) if known else {}
     ids.update(implied_ids)
     if cat == "crypto" and repo.coin_ids.get(sym):
         ids.setdefault("coingecko", repo.coin_ids[sym])
-    return Instrument(sym, name, cat, ids)
+    inst = Instrument(sym, name or (known.name if known else sym), cat, ids)
+    if not name and not known:
+        q = repo.refresh([inst], now)[0]
+        if q.valid and q.name:
+            inst.name = q.name
+    return inst
 
 
 def cmd_watchlist(repo, args, now):
@@ -214,7 +219,7 @@ def cmd_watchlist(repo, args, now):
         raise BadArgs("watchlist add|remove ...")
     verb, rest = args[0], args[1:]
     if verb == "add":
-        inst = _instrument_args(repo, rest, need_category=True)
+        inst = _instrument_args(repo, rest, now)
         repo.watchlist.add_to_watchlist(inst)
     elif verb == "remove":
         if not rest:
@@ -230,7 +235,7 @@ def cmd_favorite(repo, args, now):
         raise BadArgs("favorite add|remove ...")
     verb, rest = args[0], args[1:]
     if verb == "add":
-        inst = _instrument_args(repo, rest, need_category=True)
+        inst = _instrument_args(repo, rest, now)
         repo.watchlist.add_favorite(inst)
     elif verb == "remove":
         if not rest:
