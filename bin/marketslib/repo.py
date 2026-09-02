@@ -8,6 +8,7 @@ different prices for one symbol.
 """
 
 import os
+import time
 
 from . import fmt, http
 from .cache import CandleCache, QuoteCache
@@ -60,6 +61,7 @@ class Repository:
         self.providers = self._build_providers()
         self.errors = []  # FetchError dicts collected during this run
         self.served_by = set()  # provider ids that returned valid data this run
+        self._rate_limited = None  # decided once per run by rate_limited()
 
     def _load_cache(self, name):
         """A provider's learned dict from the state dir; a corrupt file is an empty dict."""
@@ -96,10 +98,52 @@ class Repository:
                 seen.append(p.attribution)
         return seen
 
+    # ---- the rate-limit latch --------------------------------------------
+    # Port of RateLimitSignal: a 429 that survived the retries sets a flag
+    # that only a later successful request clears. The helper is a new
+    # process per call, so the flag lives in `rate-limit.json`; a cached
+    # `snapshot --max-age` (no request at all) keeps reporting it, which is
+    # what makes the panel banner stay up until a fetch actually succeeds.
+    # A latch older than an hour is ignored: nothing polls for that long
+    # without making a request, so it can only be a leftover.
+    RATE_LIMIT_LATCH_SECONDS = 3600
+
+    def rate_limited(self, now=None):
+        if self._rate_limited is not None:
+            return self._rate_limited
+        now = int(time.time()) if now is None else int(now)
+        path = os.path.join(self.dir, "rate-limit.json")
+        try:
+            latch = read_json(path, {})
+        except ValueError:
+            latch = {}
+        since = int(latch.get("since") or 0) if isinstance(latch, dict) else 0
+        if self.settings.demo:
+            result = False
+        elif http.RATE_LIMITED:
+            result = True
+            if not since:
+                write_json_atomic(path, {"since": now})
+        elif http.SUCCEEDED:
+            result = False
+        else:
+            result = since > 0 and 0 <= now - since < self.RATE_LIMIT_LATCH_SECONDS
+        if not result and since:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+        self._rate_limited = result
+        return result
+
     def status_rows(self):
         rows = []
-        if http.RATE_LIMITED and self.settings.get("showRateLimitErrors") and not self.settings.demo:
-            rows.append({"kind": "rate_limited", "text": "Rate-limited — showing last known prices"})
+        if self.rate_limited() and self.settings.get("showRateLimitErrors"):
+            rows.append({
+                "kind": "rate_limited",
+                "text": "Rate-limited — showing last known prices",
+                "detail": "Will refresh automatically once the limit clears.",
+            })
         unpriced = [c for c in CATEGORIES if self.provider_for(c) is None]
         tracked = {i.category for i in self.watchlist.tracked()}
         if any(c in tracked for c in unpriced):
@@ -122,6 +166,7 @@ class Repository:
         self.quote_cache.save()
         self.candle_cache.save()
         self.persist_learned()
+        self.rate_limited()
 
     # ---- instruments -----------------------------------------------------
     def canonical_symbol(self, symbol):

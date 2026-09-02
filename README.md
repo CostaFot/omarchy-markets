@@ -4,7 +4,7 @@ Stocks, crypto and currencies in the [Omarchy](https://omarchy.org) bar. A live 
 
 A port of the [Markets extension for Command Palette](https://github.com/CostaFot/MarketExtension) on Windows.
 
-> Work in progress. Version 0.4.0 has the bar strip and a panel with search, watchlist, favorites and a detail page per instrument, with crypto priced through CoinGecko and stocks, indices and currencies through Yahoo Finance. No API keys. Charts, portfolio and news come later.
+> Work in progress. Version 0.5.0 has the bar strip and a panel with search, watchlist, favorites and a page per instrument with a 1D–5Y chart, with crypto priced through CoinGecko and stocks, indices and currencies through Yahoo Finance. No API keys. Portfolio and news come later.
 
 ## Install
 
@@ -32,7 +32,9 @@ It opens on a hub: Search, Watchlist, Favorites, and the pages that are not buil
 - **Search** takes a symbol or a name and looks it up when you press Enter, never while you type. Results come from both providers, tagged Stock, Crypto or Currency, and say whether the row is already on your watchlist. Enter on a result opens it.
 - **Watchlist** lists what you track grouped into Stocks, Crypto and Currencies, priced. Type to filter by symbol or name; Tab moves from the box to the list for `j`/`k`, `/` goes back. The star on a row toggles the favorite.
 - **Favorites** is the same for the starred set, the one the bar strip shows.
-- **An instrument's page** shows the price and change, then Add or Remove for the watchlist and for favorites, labelled for its current state. A symbol you found through search is priced on the way in; Add appears once it has a price. The chart arrives in a later version.
+- **An instrument's page** shows the price and change, a chart over 1D, 1W, 1M, 1Y or 5Y with the move across that range under it, then Add or Remove for the watchlist and for favorites, labelled for its current state. The day chart of a stock or currency marks yesterday's close with a dashed line. A symbol you found through search is priced on the way in; Add appears once it has a price.
+
+![An instrument's page](assets/detail-chart.png)
 
 | Key | Does |
 |---|---|
@@ -40,6 +42,7 @@ It opens on a hub: Search, Watchlist, Favorites, and the pages that are not buil
 | Enter | Open the row, or apply the action |
 | Type | Filter the list, or the search query |
 | Tab, `/` | From the box to the list, and back |
+| `←` / `→`, `h` / `l`, `1`–`5` | Chart range on an instrument's page |
 | `r` | Refresh now |
 | Esc, Backspace | Back; Esc on the hub closes |
 
@@ -51,6 +54,7 @@ omarchy-shell costafot.markets refresh
 omarchy-shell costafot.markets page watchlist      # hub, search, watchlist, favorites
 omarchy-shell costafot.markets add DOGE crypto     # stock, crypto or currency
 omarchy-shell costafot.markets favorite DOGE       # toggles; NEW:crypto for a symbol not yet tracked
+omarchy-shell costafot.markets status | jq         # what this bar shows: page, staleness, strip, chart
 ```
 
 ## Settings
@@ -63,7 +67,7 @@ Inline on the plugin's entry in `~/.config/omarchy/shell.json`, or through `omar
 | `strip` | `"favorites"` | What the strip lists: `favorites` or `watchlist` |
 | `stripShowPrice` | `true` | Off shows only the change percentage |
 | `stripMax` | `6` | Most entries the strip lists before trimming for width |
-| `showRateLimitErrors` | `true` | Off hides the provider's rate-limit line in the panel |
+| `showRateLimitErrors` | `true` | Off hides the amber rate-limit banner in the panel |
 
 ## The helper
 
@@ -73,7 +77,7 @@ Everything that touches the network or the disk is `bin/markets`, a Python 3 scr
 bin/markets snapshot | jq '.strip'
 bin/markets quotes AAPL HSBA.L EURUSD '^GSPC' | jq -c '.quotes[] | [.symbol, .price_text, .change_text]'
 bin/markets search sol | jq '.results[0]'
-bin/markets candles AAPL 5Y | jq '.series.range_change_text'
+bin/markets candles AAPL 5Y | jq '.series | {range_change_text, first_label, last_label}'
 bin/markets watchlist add TSLA stock | jq '.instruments | length'   # priced once, named by the provider
 bin/markets favorite remove TSLA | jq '.strip'
 ```
@@ -94,6 +98,10 @@ Stock, index and currency prices come from an unofficial Yahoo Finance endpoint.
 **Is this financial advice?** No. Prices are delayed and best effort.
 
 **Why is a row showing a dash?** The provider did not answer for it this time: an unknown symbol, a rate limit, or an outage. The last good price is kept and marked stale until the next successful refresh.
+
+**What is the amber banner?** A provider throttled the last fetch. The prices on screen are the last known ones, the bar shows a pause glyph next to them, and the banner stays until a fetch succeeds. `showRateLimitErrors: false` hides it.
+
+**The crypto 5Y chart only shows a year.** CoinGecko's keyless API serves one year of history; the chart says so under the plot. Stocks and currencies get the full five years from Yahoo.
 
 **HSBA.L shows pounds but Yahoo shows pence.** London quotes arrive in pence; the plugin converts them so the row reads `£15.45` like the rest.
 

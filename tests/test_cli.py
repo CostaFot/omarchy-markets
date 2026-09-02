@@ -9,7 +9,7 @@ import unittest
 
 import _paths  # noqa: F401
 from _paths import ROOT
-from fakeserver import FakeServer, coingecko_routes, yahoo_routes
+from fakeserver import FakeServer, _Everything, coingecko_routes, yahoo_routes
 
 BIN = os.path.join(ROOT, "bin", "markets")
 
@@ -141,6 +141,52 @@ class Cli(unittest.TestCase):
         doc = self.run_cli("snapshot", "--max-age", "60", "--extra", "DOGE:crypto")
         self.assertTrue(doc["cached"])
         self.assertEqual(len(self.server.hits("/coins/markets")), 2)
+
+    def test_candles_document_has_the_chart_strings_and_survives_the_cache(self):
+        doc = self.run_cli("candles", "AAPL", "1D")
+        series = doc["series"]
+        self.assertTrue(series["valid"])
+        for key in ("min_text", "max_text", "first_label", "last_label", "previous_close_text", "range_change_text"):
+            self.assertNotEqual(series[key], "", key)
+        self.assertEqual(series["previous_close"], 325.13)
+        again = self.run_cli("candles", "AAPL", "1D")
+        self.assertTrue(again["cached"])
+        self.assertEqual(again["series"], series)
+        rate = self.run_cli("candles", "EURUSD", "1M")["series"]
+        self.assertEqual(rate["category"], "currency")
+        self.assertNotIn("$", rate["min_text"])
+
+    def test_rate_limit_keeps_prices_and_latches_until_a_fetch_succeeds(self):
+        good = self.run_cli("snapshot")
+        self.assertTrue(good["quotes"]["BTC"]["valid"])
+        throttled = FakeServer()
+        throttled.routes = _Everything(lambda q, p: (429, {"Retry-After": "60"}, b"{}"))
+        throttled.start()
+        try:
+            env = dict(self.env, MARKETS_COINGECKO_URL=throttled.base_url, MARKETS_YAHOO_URL=throttled.base_url)
+            doc = self.run_cli("snapshot", "--max-age", "0", env=env)
+        finally:
+            throttled.stop()
+        self.assertFalse(doc["ok"])
+        self.assertTrue(doc["rate_limited"])
+        self.assertEqual(doc["error"]["code"], "rate_limited")
+        self.assertTrue(doc["quotes"]["BTC"]["valid"])  # last good, kept
+        self.assertTrue(doc["quotes"]["BTC"]["stale"])
+        self.assertEqual([r["kind"] for r in doc["status_rows"]], ["rate_limited"])
+        self.assertTrue([e for e in doc["strip"] if e["stale"]])
+        # A cache read makes no request, so the latch still reports.
+        cached = self.run_cli("snapshot", "--max-age", "600")
+        self.assertTrue(cached["cached"])
+        self.assertTrue(cached["rate_limited"])
+        self.assertTrue(cached["ok"])
+        # Hidden when the user turned the notice off; the flag still rides.
+        quiet = self.run_cli("--settings", '{"showRateLimitErrors": false}', "snapshot", "--max-age", "600")
+        self.assertTrue(quiet["rate_limited"])
+        self.assertEqual(quiet["status_rows"], [])
+        # A successful fetch clears it.
+        fresh = self.run_cli("snapshot", "--max-age", "0")
+        self.assertFalse(fresh["rate_limited"])
+        self.assertFalse(fresh["quotes"]["BTC"]["stale"])
 
     def test_settings_shape_the_strip(self):
         doc = self.run_cli("--settings", '{"strip":"watchlist","stripMax":2}', "snapshot")

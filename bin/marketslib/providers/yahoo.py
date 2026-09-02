@@ -312,7 +312,17 @@ class Yahoo(Provider):
             return CandleSeries.invalid(instrument.symbol, rng, "No chart data for this range")
         self._remember(wire, name=meta.get("longName") or meta.get("shortName"), currency=meta.get("currency"),
                        type=meta.get("instrumentType"), exchange=meta.get("exchangeName"))
-        return CandleSeries(instrument.symbol, rng, downsample(points), valid=True, currency=code)
+        # The day chart gets yesterday's close as a reference line; for the
+        # longer ranges the close before the window says little.
+        previous = None
+        if rng == "1D":
+            raw = meta.get("chartPreviousClose", meta.get("previousClose"))
+            try:
+                previous = float(raw) * scale if raw is not None else None
+            except (TypeError, ValueError):
+                previous = None
+        return CandleSeries(instrument.symbol, rng, downsample(points), valid=True, currency=code,
+                            previous_close=previous, category=instrument.category)
 
 
 assert set(RANGE_PARAMS) == set(RANGES)

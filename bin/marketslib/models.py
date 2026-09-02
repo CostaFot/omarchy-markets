@@ -123,6 +123,12 @@ class CandleSeries:
     valid: bool = True
     message: str = ""
     currency: str = "USD"
+    # The close before the window opened, when the provider states one
+    # (Yahoo's chartPreviousClose); the 1D chart draws it as a reference
+    # line. None when unknown.
+    previous_close: float = None
+    # "currency" instruments are labelled as rates, everything else as money.
+    category: str = "stock"
 
     @classmethod
     def invalid(cls, symbol, rng, message=""):
@@ -135,21 +141,37 @@ class CandleSeries:
     def to_dict(self):
         from . import fmt
 
-        first = self.points[0][1] if self.has_data else None
-        last = self.points[-1][1] if self.has_data else None
+        has = self.has_data
+        first = self.points[0][1] if has else None
+        last = self.points[-1][1] if has else None
+        closes = [p[1] for p in self.points] if has else []
+        low = min(closes) if has else None
+        high = max(closes) if has else None
+        pc = self.previous_close if has and self.previous_close is not None else None
+        label = lambda v: fmt.chart_price_text(v, self.currency, self.category)  # noqa: E731
         return {
             "symbol": self.symbol,
             "range": self.range,
-            "valid": self.has_data,
+            "valid": has,
             "message": self.message,
             "currency": self.currency,
+            "category": self.category,
             "points": self.points,
             "n": len(self.points),
             "first": first,
             "last": last,
-            "dir": ("up" if last >= first else "down") if self.has_data else "flat",
-            "price_text": fmt.money(last, self.currency) if self.has_data else "—",
-            "range_change_text": fmt.range_change_text(first, last, self.range, self.currency) if self.has_data else "",
+            "min": low,
+            "max": high,
+            "previous_close": pc,
+            "dir": ("up" if last >= first else "down") if has else "flat",
+            "price_text": fmt.money(last, self.currency) if has else "—",
+            "range_change_text": fmt.range_change_text(first, last, self.range, self.currency) if has else "",
+            # Every string the chart shows; QML formats no number and no date.
+            "min_text": label(low) if has else "",
+            "max_text": label(high) if has else "",
+            "previous_close_text": label(pc) if pc is not None else "",
+            "first_label": fmt.time_label(self.points[0][0], self.range) if has else "",
+            "last_label": fmt.time_label(self.points[-1][0], self.range) if has else "",
         }
 
     @classmethod
@@ -161,4 +183,6 @@ class CandleSeries:
             valid=bool(d.get("valid", False)),
             message=str(d.get("message") or ""),
             currency=str(d.get("currency") or "USD"),
+            previous_close=float(d["previous_close"]) if d.get("previous_close") is not None else None,
+            category=str(d.get("category") or "stock"),
         )

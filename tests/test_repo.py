@@ -6,6 +6,7 @@ import _paths  # noqa: F401
 from marketslib import http
 from marketslib.models import CandleSeries, Instrument, Quote
 from marketslib.providers import Provider
+from marketslib.state import write_json_atomic
 from marketslib.repo import Repository, Settings
 
 
@@ -48,6 +49,7 @@ class RepositoryRouting(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         http.RATE_LIMITED = False
+        http.SUCCEEDED = False
         self.repo = Repository(Settings(), directory=self.tmp.name)
         self.crypto = FakeCrypto()
         self.repo.providers = [self.crypto]
@@ -55,6 +57,7 @@ class RepositoryRouting(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
         http.RATE_LIMITED = False
+        http.SUCCEEDED = False
 
     def test_unserviceable_categories_become_invalid_placeholders_in_order(self):
         instruments = [Instrument("AAPL", "Apple", "stock"), Instrument("BTC", "Bitcoin", "crypto"),
@@ -152,9 +155,36 @@ class RepositoryRouting(unittest.TestCase):
         rows = self.repo.status_rows()
         self.assertEqual([r["kind"] for r in rows], ["no_provider"])
         http.RATE_LIMITED = True
+        self.repo._rate_limited = None  # decided once per run; this test is several runs
         self.assertEqual([r["kind"] for r in self.repo.status_rows()], ["rate_limited", "no_provider"])
         self.repo.settings = Settings({"showRateLimitErrors": False})
         self.assertEqual([r["kind"] for r in self.repo.status_rows()], ["no_provider"])
+
+    def test_rate_limit_latch_survives_runs_until_a_request_succeeds(self):
+        # Run 1: a 429 survived the retries.
+        http.RATE_LIMITED = True
+        self.repo.flush()
+        self.assertTrue(self.repo.rate_limited())
+        self.assertTrue(os.path.exists(os.path.join(self.tmp.name, "rate-limit.json")))
+        # Run 2: a pure cache read makes no request; the latch still reports.
+        http.RATE_LIMITED = False
+        http.SUCCEEDED = False
+        again = Repository(Settings(), directory=self.tmp.name)
+        self.assertTrue(again.rate_limited())
+        # Run 3: something came back 2xx; cleared and the file is gone.
+        http.SUCCEEDED = True
+        cleared = Repository(Settings(), directory=self.tmp.name)
+        self.assertFalse(cleared.rate_limited())
+        self.assertFalse(os.path.exists(os.path.join(self.tmp.name, "rate-limit.json")))
+
+    def test_rate_limit_latch_expires_and_never_shows_in_demo(self):
+        write_json_atomic(os.path.join(self.tmp.name, "rate-limit.json"), {"since": 1000})
+        http.SUCCEEDED = False
+        self.assertTrue(Repository(Settings(), directory=self.tmp.name).rate_limited(now=1000 + 600))
+        self.assertFalse(Repository(Settings(), directory=self.tmp.name).rate_limited(now=1000 + 7200))
+        write_json_atomic(os.path.join(self.tmp.name, "rate-limit.json"), {"since": 1000})
+        http.RATE_LIMITED = True
+        self.assertFalse(Repository(Settings({"demoMode": True}), directory=self.tmp.name).rate_limited(now=1000))
 
     def test_attribution_only_for_providers_that_served(self):
         self.assertEqual(self.repo.attribution(), [])

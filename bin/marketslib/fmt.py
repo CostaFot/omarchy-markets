@@ -5,6 +5,7 @@ and Models/UiCandleSeries.cs. Culture-invariant on purpose: the Windows
 extension formatted the same way regardless of locale, and so does this.
 """
 
+import time
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
 # CurrencyFormat.Symbols — trailing spaces are part of the symbol on purpose
@@ -156,3 +157,25 @@ def strip_value_text(quote, show_price=True):
     if quote.category == "currency":
         return f"{float(quote.price):.4f} {change}"
     return f"{money_compact(quote.price, quote.currency)} {change}"
+
+
+# Chart axis stamps, in the machine's local time. Per range, what a reader
+# needs to place the ends of the line: a clock for a day, weekday
+# and date for a week, day and month for a month, month and year beyond that.
+TIME_LABEL_FORMATS = {"1D": "%H:%M", "1W": "%a %-d %b", "1M": "%-d %b", "1Y": "%b %Y", "5Y": "%b %Y"}
+
+
+def time_label(ts, range_label):
+    """"14:30", "Wed 2 Sep", "4 Aug", "Sep 2025" — the first/last stamps under a chart."""
+    try:
+        t = time.localtime(int(ts))
+    except (TypeError, ValueError, OverflowError, OSError):
+        return ""
+    return time.strftime(TIME_LABEL_FORMATS.get(range_label, "%-d %b %Y"), t)
+
+
+def chart_price_text(amount, currency, category):
+    """The min/max/previous-close labels on a chart: FX as a rate, the rest as money."""
+    if category == "currency":
+        return f"{float(amount):.4f}"
+    return money(amount, currency)

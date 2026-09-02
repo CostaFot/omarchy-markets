@@ -1,8 +1,10 @@
+import os
+import time
 import unittest
 
 import _paths  # noqa: F401
 from marketslib import fmt
-from marketslib.models import Quote
+from marketslib.models import CandleSeries, Quote
 
 
 class MoneyFormatting(unittest.TestCase):
@@ -97,3 +99,44 @@ class QuoteDocument(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ChartLabels(unittest.TestCase):
+    """Local-time stamps; pinned to UTC for the assertions."""
+
+    def setUp(self):
+        self.old_tz = os.environ.get("TZ")
+        os.environ["TZ"] = "UTC"
+        time.tzset()
+
+    def tearDown(self):
+        if self.old_tz is None:
+            os.environ.pop("TZ", None)
+        else:
+            os.environ["TZ"] = self.old_tz
+        time.tzset()
+
+    def test_time_label_per_range(self):
+        ts = 1788356400  # 2026-09-02 13:40 UTC, a Wednesday
+        self.assertEqual(fmt.time_label(ts, "1D"), "13:40")
+        self.assertEqual(fmt.time_label(ts, "1W"), "Wed 2 Sep")
+        self.assertEqual(fmt.time_label(ts, "1M"), "2 Sep")
+        self.assertEqual(fmt.time_label(ts, "1Y"), "Sep 2026")
+        self.assertEqual(fmt.time_label(ts, "5Y"), "Sep 2026")
+        self.assertEqual(fmt.time_label("garbage", "1D"), "")
+
+    def test_chart_price_text_rates_versus_money(self):
+        self.assertEqual(fmt.chart_price_text(1.08765, "USD", "currency"), "1.0877")
+        self.assertEqual(fmt.chart_price_text(1234.5, "GBP", "stock"), "£1,234.50")
+
+    def test_series_document_carries_every_chart_string(self):
+        s = CandleSeries("AAPL", "1D", [[1788356400, 100.0], [1788360000, 90.0], [1788363600, 105.0]],
+                         previous_close=95.0, category="stock")
+        d = s.to_dict()
+        self.assertEqual((d["min"], d["max"]), (90.0, 105.0))
+        self.assertEqual((d["min_text"], d["max_text"]), ("$90.00", "$105.00"))
+        self.assertEqual(d["previous_close_text"], "$95.00")
+        self.assertEqual((d["first_label"], d["last_label"]), ("13:40", "15:40"))
+        self.assertEqual(d["dir"], "up")
+        empty = CandleSeries.invalid("ZZZZ", "1D", "Not found").to_dict()
+        self.assertEqual((empty["min_text"], empty["first_label"], empty["previous_close"]), ("", "", None))

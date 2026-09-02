@@ -72,7 +72,7 @@ def _finish(repo, command, payload, ok=True, error=None):
         }
     doc = envelope(command, ok=ok, error=error, **payload)
     doc["demo"] = repo.settings.demo
-    doc["rate_limited"] = bool(http.RATE_LIMITED)
+    doc["rate_limited"] = repo.rate_limited()
     doc["attribution"] = repo.attribution()
     doc["status_rows"] = repo.status_rows()
     return doc
@@ -148,6 +148,11 @@ def cmd_snapshot(repo, args, now):
                 max_age = max(0, int(args[i + 1]))
             except ValueError as e:
                 raise BadArgs("--max-age must be an integer") from e
+            # 0 is "fetch everything now": with second-granularity stamps a
+            # forced refresh in the same second as a poll would otherwise
+            # be a cache read.
+            if max_age == 0:
+                max_age = None
             i += 2
         elif a == "--extra":
             i += 1

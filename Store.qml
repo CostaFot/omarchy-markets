@@ -55,15 +55,20 @@ QtObject {
   readonly property var quotes: snapshot && snapshot.quotes ? snapshot.quotes : ({})
   readonly property var favorites: snapshot && Array.isArray(snapshot.favorites) ? snapshot.favorites : []
   readonly property var attribution: snapshot && Array.isArray(snapshot.attribution) ? snapshot.attribution : []
-  readonly property bool rateLimited: snapshot ? snapshot.rate_limited === true : false
+  // From the newest document of any kind: the helper's latch outlives a
+  // process (rate-limit.json), so a cached snapshot after a throttled poll
+  // still says so, and a throttled chart or search call raises it too.
+  property bool rateLimited: false
   readonly property bool demo: snapshot ? snapshot.demo === true : false
+  // The amber banner (RateLimitHint): only when the user wants it and the
+  // data is live.
+  readonly property bool rateLimitBanner: rateLimited && showRateLimitErrors && !demo
   readonly property int generatedAt: snapshot && snapshot.generated_at ? Number(snapshot.generated_at) : 0
 
-  // Status rows the helper wants shown, minus rate-limit chatter when the
-  // user switched it off.
+  // Status rows the helper wants shown, minus the rate-limit row: the
+  // panel paints that one as the banner at the top instead.
   readonly property var statusRows: {
     var rows = snapshot && Array.isArray(snapshot.status_rows) ? snapshot.status_rows : []
-    if (showRateLimitErrors) return rows
     var out = []
     for (var i = 0; i < rows.length; i++) if (rows[i].kind !== "rate_limited") out.push(rows[i])
     return out
@@ -86,8 +91,11 @@ QtObject {
   // the same ANSI slots are the second choice), then accent/urgent.
   property string themeGreen: ""
   property string themeRed: ""
+  property string themeYellow: ""
   readonly property color upColor: themeGreen !== "" ? themeGreen : Color.accent
   readonly property color downColor: themeRed !== "" ? themeRed : Color.urgent
+  // Caution, not failure: the theme's yellow, else the Windows banner's amber.
+  readonly property color warnColor: themeYellow !== "" ? themeYellow : "#c87c00"
 
   function parseThemeColors(raw) {
     var lines = String(raw || "").split("\n")
@@ -98,6 +106,7 @@ QtObject {
     }
     themeGreen = found.green || found.color2 || ""
     themeRed = found.red || found.color1 || ""
+    themeYellow = found.yellow || found.color3 || ""
   }
 
   // `flat` renders like `up` (the Windows UiQuote.IsUp rule).
@@ -230,10 +239,10 @@ QtObject {
         // A mutation that fetched nothing credits nobody; keep the snapshot's.
         if (Array.isArray(d.attribution) && d.attribution.length > 0) merged.attribution = d.attribution
         if (d.status_rows !== undefined) merged.status_rows = d.status_rows
-        merged.rate_limited = d.rate_limited === true
         snapshot = merged
       }
     }
+    rateLimited = d.rate_limited === true
     if (d.error && d.error.message) {
       fail(String(d.error.code || "internal"), String(d.error.message))
     } else {

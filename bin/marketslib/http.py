@@ -28,6 +28,9 @@ KEY_PARAMS = ("apikey", "token", "key", "x-cg-demo-api-key")
 
 # Process-wide, like RateLimitSignal: a free-tier limit is key-wide, not per symbol.
 RATE_LIMITED = False
+# True once any request in this run came back 2xx; with RATE_LIMITED it is
+# what the repository's persisted rate-limit latch keys off.
+SUCCEEDED = False
 
 
 def _env_float(name, default):
@@ -136,7 +139,7 @@ def get(url, headers=None, tag=""):
     """Return (status, body_bytes). Retries only on 429; any other status is
     returned as-is for the caller to interpret. Raises FetchError for
     network failures, timeouts and the byte cap."""
-    global RATE_LIMITED
+    global RATE_LIMITED, SUCCEEDED
     req_headers = {"Accept": "application/json", "User-Agent": USER_AGENT}
     if headers:
         req_headers.update(headers)
@@ -172,6 +175,7 @@ def get(url, headers=None, tag=""):
         if status != 429:
             if 200 <= status < 300:
                 RATE_LIMITED = False
+                SUCCEEDED = True
             return status, body
 
         delay = _retry_after_seconds(resp_headers)

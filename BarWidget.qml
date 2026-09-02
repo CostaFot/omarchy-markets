@@ -72,12 +72,46 @@ BarWidget {
     function page(name: string): void { if (root.marketPanel) root.marketPanel.showPage(name) }
     function add(symbol: string, category: string): void { if (root.marketPanel) root.marketPanel.addSymbol(symbol, category) }
     function favorite(symbol: string): void { if (root.marketPanel) root.marketPanel.favoriteSymbol(symbol) }
+    function status(): string { return root.statusJson() }
+  }
+
+  //   omarchy-shell costafot.markets status | jq
+  // What this bar instance is showing, for a terminal. The helper's own
+  // `bin/markets status` covers the data side (providers, state dir).
+  function statusJson() {
+    var s = root.store
+    var doc = {
+      opened: root.opened,
+      page: root.marketPanel ? root.marketPanel.page : "",
+      has_data: root.hasData,
+      busy: s ? s.busy : false,
+      stale: s ? s.stale : false,
+      rate_limited: s ? s.rateLimited : false,
+      banner: s ? s.rateLimitBanner : false,
+      generated_at: s ? s.generatedAt : 0,
+      error: s ? s.lastError : "",
+      error_code: s ? s.lastErrorCode : "",
+      strip: root.fullText,
+      shown: root.fitCount,
+      entries: root.entries.length,
+      strip_max_width: root.stripMaxWidth,
+      extras: s ? s.extras : [],
+      chart: root.marketPanel ? root.marketPanel.chartStatus() : null
+    }
+    return JSON.stringify(doc)
   }
 
   // ---- Strip model ---------------------------------------------------------
   readonly property var entries: store ? store.strip : []
   readonly property bool hasData: store ? store.hasData : false
-  readonly property bool stripStale: store ? store.stale : false
+  // The pause glyph: the newest run failed, the helper's rate-limit latch
+  // is up, or any entry shown is a kept last-good price.
+  readonly property bool stripStale: {
+    if (!store) return false
+    if (store.stale || store.rateLimited) return true
+    for (var i = 0; i < entries.length; i++) if (entries[i].stale === true) return true
+    return false
+  }
   // barForeground (not foreground) so the strip follows the bar's transparent-mode colour.
   readonly property color baseFg: root.bar ? root.bar.barForeground : Color.foreground
   readonly property color dimFg: Qt.darker(baseFg, 1.55)

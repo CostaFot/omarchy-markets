@@ -39,7 +39,10 @@ Panel {
     extras: root.detailExtras
   }
 
-  function refresh() { store.refresh(true) }
+  function refresh() {
+    store.refresh(true)
+    if (page === "detail") loadChart(chartRange, true)
+  }
 
   // ---- Navigation ---------------------------------------------------------
   // Each entry: { page, ...args, cursor, query } where cursor and query are
@@ -95,7 +98,10 @@ Panel {
   function enterPage(entry) {
     listScroll.contentY = 0
     filterField.text = entry.query || ""
-    if (entry.page === "detail" && !instrumentFor(entry.symbol)) store.refresh(false)
+    if (entry.page === "detail") {
+      if (!instrumentFor(entry.symbol)) store.refresh(false)
+      loadChart(chartRange, false)
+    }
     Qt.callLater(function() {
       var wanted = entry.cursor
       selectedIndex = (wanted !== undefined && root.isCursorRow(root.rows[wanted])) ? wanted : root.firstCursorIndex()
@@ -161,6 +167,85 @@ Panel {
         root.ensureCursorVisible()
       })
     })
+  }
+
+  // ---- Chart --------------------------------------------------------------
+  // Port of SymbolChartForm: the range is sticky while the panel is up, a
+  // prior chart stays painted while another range loads (the "Loading…"
+  // card only ever shows before the first chart of a symbol), and a
+  // generation counter drops the answer to a superseded request. Series
+  // are kept per symbol and range for five minutes, the helper's own TTL,
+  // so a tab revisited inside that window costs no process at all.
+  readonly property var chartRanges: ["1D", "1W", "1M", "1Y", "5Y"]
+  property string chartRange: "1D"
+  property var chartSeries: null
+  property var chartCache: ({})
+  property bool chartLoading: false
+  property string chartError: ""
+  property int chartGeneration: 0
+  readonly property int chartTtlMs: 5 * 60 * 1000
+
+  function chartKey(symbol, range) { return symbol + "|" + range }
+
+  function loadChart(range, force) {
+    if (page !== "detail") return
+    var e = current
+    var sym = e.symbol
+    var inst = instrumentFor(sym)
+    var cat = inst ? inst.category : e.category
+    chartRange = range
+    var key = chartKey(sym, range)
+    var hit = chartCache[key]
+    if (hit) chartSeries = hit.series
+    else if (!chartSeries || chartSeries.symbol !== sym) chartSeries = null
+    chartError = ""
+    if (hit && !force && Date.now() - hit.at < chartTtlMs) { chartLoading = false; return }
+    var gen = ++chartGeneration
+    chartLoading = true
+    store.run(["candles", sym + ":" + cat, range], function(doc) {
+      if (gen !== root.chartGeneration) return
+      root.chartLoading = false
+      var series = doc && doc.series ? doc.series : null
+      if (!series) {
+        root.chartError = doc && doc.error && doc.error.message ? doc.error.message : "No answer from the helper"
+        return
+      }
+      if (series.valid) {
+        var cache = Object.assign({}, root.chartCache)
+        cache[key] = { series: series, at: Date.now() }
+        root.chartCache = cache
+        root.chartSeries = series
+      } else if (!root.chartSeries || root.chartSeries.symbol !== sym) {
+        root.chartSeries = series
+      } else {
+        // Keep the chart that was fine; say why this range is not.
+        root.chartError = series.message || "No chart data for this range"
+      }
+    })
+  }
+
+  function setRange(range) {
+    if (chartRanges.indexOf(range) === -1 || page !== "detail") return
+    loadChart(range, false)
+  }
+
+  function stepRange(delta) {
+    var i = chartRanges.indexOf(chartRange)
+    if (i === -1) i = 0
+    setRange(chartRanges[(i + delta + chartRanges.length) % chartRanges.length])
+  }
+
+  // For the `status` IPC.
+  function chartStatus() {
+    return {
+      range: chartRange,
+      symbol: chartSeries ? chartSeries.symbol : "",
+      points: chartSeries && Array.isArray(chartSeries.points) ? chartSeries.points.length : 0,
+      valid: chartSeries ? chartSeries.valid === true : false,
+      loading: chartLoading,
+      error: chartError,
+      cached: Object.keys(chartCache).length
+    }
   }
 
   // ---- Membership ---------------------------------------------------------
@@ -360,6 +445,17 @@ Panel {
       type: "hero", symbol: e.symbol, name: name, caption: caption, valid: valid,
       priceText: valid ? q.price_text : "—", changeText: valid ? q.change_text : "", dir: q ? q.dir : "flat"
     }]
+    var series = chartSeries && chartSeries.symbol === e.symbol ? chartSeries : null
+    var hasChart = series !== null && series.valid === true
+    var chartNote = ""
+    if (chartError !== "") chartNote = chartError
+    else if (!hasChart && chartLoading) chartNote = "Loading " + chartRange + "…"
+    else if (!hasChart && series) chartNote = series.message || "No chart for this range"
+    else if (hasChart && series.range !== chartRange) chartNote = "Loading " + chartRange + "…"
+    else if (hasChart && series.message) chartNote = series.message
+    out.push({ type: "chart", series: hasChart ? series : null, loading: chartLoading, note: chartNote,
+               changeText: hasChart ? series.range_change_text : "", dir: hasChart ? series.dir : "flat" })
+    out.push({ type: "tabs", range: chartRange })
     out.push({ type: "sep" })
     var inWatch = inst ? inst.in_watchlist === true : false
     var isFav = inst ? inst.is_favorite === true : false
@@ -379,8 +475,6 @@ Panel {
       out.push({ type: "sep" })
       out.push({ type: "note", label: notice, urgent: noticeUrgent })
     }
-    out.push({ type: "sep" })
-    out.push({ type: "note", label: "Chart and ranges arrive in a later version." })
     return out
   }
 
@@ -404,6 +498,9 @@ Panel {
     var s = root.store
     var out = []
     if (!isHub) out.push({ type: "title", label: page === "detail" ? current.symbol : (pageTitles[page] || page) })
+    if (s.rateLimitBanner)
+      out.push({ type: "note", warn: true, icon: "", label: "Rate-limited — showing last known prices",
+                 detail: "Will refresh automatically once the limit clears." })
     var body
     if (page === "hub") body = hubRows()
     else if (page === "watchlist") body = watchlistRows()
@@ -418,7 +515,7 @@ Panel {
     if (status.length > 0 || errorText !== "") {
       out.push({ type: "sep" })
       for (var r = 0; r < status.length; r++)
-        out.push({ type: "note", label: status[r].text || "" })
+        out.push({ type: "note", label: status[r].text || "", detail: status[r].detail || "" })
       if (errorText !== "")
         out.push({ type: "note", label: errorText, urgent: true })
     }
@@ -445,7 +542,7 @@ Panel {
     if (page === "hub") return "j/k move · Enter opens · r refreshes · Esc closes"
     if (page === "search") return "Enter searches, then opens · Tab to the list · Esc back"
     if (hasField) return "Type to filter · ↑/↓ move · Enter opens · Esc back"
-    if (page === "detail") return "Enter applies · r refreshes · Esc back"
+    if (page === "detail") return "←/→ or 1–5 range · Enter applies · r refreshes · Esc back"
     return "Esc or Backspace back"
   }
 
@@ -536,6 +633,13 @@ Panel {
     }
   }
 
+  // A poll landed while a chart is up: reload the visible range (a cache
+  // read inside the helper's five minutes, a fetch after).
+  property Connections storeWatch: Connections {
+    target: root.store
+    function onGeneratedAtChanged() { if (root.opened && root.page === "detail") root.loadChart(root.chartRange, false) }
+  }
+
   property Timer noticeTimer: Timer {
     interval: 3000
     repeat: false
@@ -570,13 +674,17 @@ Panel {
         anchors.fill: parent
         clip: true
         blocked: filterField.activeFocus
-        onMoveRequested: function(dx, dy) { if (dy !== 0) root.moveCursor(dy) }
+        onMoveRequested: function(dx, dy) {
+          if (dy !== 0) root.moveCursor(dy)
+          else if (dx !== 0 && root.page === "detail") root.stepRange(dx)
+        }
         onActivateRequested: root.activate(root.rows[root.selectedIndex])
         onCloseRequested: root.pop()
         onTabRequested: function(direction) { root.switchPanel(direction) }
         onTextKey: function(t) {
           if (t === "r" || t === "R") root.refresh()
           else if (t === "/" && root.hasField) filterField.forceActiveFocus()
+          else if (root.page === "detail" && t >= "1" && t <= "5") root.setRange(root.chartRanges[Number(t) - 1])
         }
 
         Item {
@@ -652,6 +760,8 @@ Panel {
                   readonly property bool isAttribution: kind === "attribution"
                   readonly property bool isAction: kind === "action"
                   readonly property bool isTitle: kind === "title"
+                  readonly property bool isChart: kind === "chart"
+                  readonly property bool isTabs: kind === "tabs"
                   readonly property bool cursorable: isInstrument || isAttribution || isAction
                   readonly property bool hasCursor: cursorable && index === root.selectedIndex
                   readonly property bool twoLine: (isInstrument || isAction) && !!modelData.detail
@@ -664,6 +774,8 @@ Panel {
                     : kind === "title" ? Style.space(30)
                     : kind === "hero" ? heroColumn.implicitHeight + Style.space(16)
                     : kind === "note" ? noteColumn.implicitHeight + Style.space(12)
+                    : kind === "chart" ? chartLoader.implicitHeight + Style.space(12)
+                    : kind === "tabs" ? Style.space(30)
                     : kind === "footer" ? footerLabel.implicitHeight + Style.space(8)
                     : twoLine ? Style.space(44) : Style.space(32)
 
@@ -790,6 +902,106 @@ Panel {
                     }
                   }
 
+                  // The chart: one Canvas, loaded only for this row kind, plus
+                  // the range's move under it (or why there is no chart yet).
+                  Loader {
+                    id: chartLoader
+                    active: rowItem.isChart
+                    visible: rowItem.isChart
+                    width: parent.width - Style.space(16)
+                    x: Style.space(8)
+                    anchors.verticalCenter: parent.verticalCenter
+
+                    sourceComponent: Column {
+                      width: chartLoader.width
+                      spacing: Style.space(4)
+
+                      Chart {
+                        width: parent.width
+                        points: rowItem.modelData.series ? rowItem.modelData.series.points : []
+                        previousClose: rowItem.modelData.series && rowItem.modelData.series.previous_close !== null
+                          && rowItem.modelData.series.previous_close !== undefined
+                          ? Number(rowItem.modelData.series.previous_close) : NaN
+                        up: rowItem.modelData.dir !== "down"
+                        upColor: root.store.upColor
+                        downColor: root.store.downColor
+                        foreground: root.contentForeground
+                        mutedForeground: root.mutedForeground
+                        fontFamily: root.contentFontFamily
+                        minText: rowItem.modelData.series ? rowItem.modelData.series.min_text : ""
+                        maxText: rowItem.modelData.series ? rowItem.modelData.series.max_text : ""
+                        previousCloseText: rowItem.modelData.series ? rowItem.modelData.series.previous_close_text : ""
+                        firstLabel: rowItem.modelData.series ? rowItem.modelData.series.first_label : ""
+                        lastLabel: rowItem.modelData.series ? rowItem.modelData.series.last_label : ""
+                        loading: rowItem.modelData.loading === true && rowItem.modelData.series === null
+                      }
+
+                      Text {
+                        visible: text !== ""
+                        width: parent.width
+                        textFormat: Text.PlainText
+                        text: rowItem.modelData.changeText || ""
+                        color: root.store.dirColor(rowItem.modelData.dir, root.contentForeground)
+                        font.family: root.contentFontFamily
+                        font.pixelSize: Style.font.body
+                        elide: Text.ElideRight
+                      }
+
+                      Text {
+                        visible: text !== ""
+                        width: parent.width
+                        textFormat: Text.PlainText
+                        text: rowItem.modelData.note || ""
+                        color: root.mutedForeground
+                        font.family: root.contentFontFamily
+                        font.pixelSize: Style.font.caption
+                        wrapMode: Text.Wrap
+                      }
+                    }
+                  }
+
+                  // 1D 1W 1M 1Y 5Y — the selected range filled, the rest plain.
+                  Row {
+                    visible: rowItem.isTabs
+                    x: Style.space(8)
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: Style.space(4)
+
+                    Repeater {
+                      model: rowItem.isTabs ? root.chartRanges : []
+
+                      Rectangle {
+                        id: tab
+                        required property string modelData
+                        readonly property bool selected: rowItem.isTabs && rowItem.modelData.range === modelData
+                        width: Style.space(40)
+                        height: Style.space(22)
+                        radius: Style.cornerRadius
+                        color: selected ? Style.selectedFillFor(root.contentForeground, Color.accent, root.urgentForeground)
+                             : tabHover.containsMouse ? Style.hoverFillFor(root.contentForeground, Color.accent, root.urgentForeground)
+                             : "transparent"
+
+                        Text {
+                          anchors.centerIn: parent
+                          textFormat: Text.PlainText
+                          text: tab.modelData
+                          color: tab.selected ? root.contentForeground : root.mutedForeground
+                          font.family: root.contentFontFamily
+                          font.pixelSize: Style.font.caption
+                          font.bold: tab.selected
+                        }
+
+                        MouseArea {
+                          id: tabHover
+                          anchors.fill: parent
+                          hoverEnabled: true
+                          cursorShape: Qt.PointingHandCursor
+                          onClicked: root.setRange(tab.modelData)
+                        }
+                      }
+                    }
+                  }
+
                   Column {
                     id: noteColumn
                     visible: rowItem.kind === "note"
@@ -801,10 +1013,11 @@ Panel {
                     Text {
                       width: parent.width
                       textFormat: Text.PlainText
-                      text: rowItem.modelData.label || ""
-                      color: rowItem.modelData.urgent ? root.urgentForeground : root.contentForeground
+                      text: (rowItem.modelData.icon ? rowItem.modelData.icon + "  " : "") + (rowItem.modelData.label || "")
+                      color: rowItem.modelData.urgent ? root.urgentForeground
+                           : rowItem.modelData.warn ? root.store.warnColor : root.contentForeground
                       font.family: root.contentFontFamily
-                      font.pixelSize: Style.font.caption
+                      font.pixelSize: rowItem.modelData.warn ? Style.font.body : Style.font.caption
                       wrapMode: Text.Wrap
                     }
 

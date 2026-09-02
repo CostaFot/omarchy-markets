@@ -102,6 +102,8 @@ class CandleCache:
                 "valid": series.valid,
                 "message": series.message,
                 "currency": series.currency,
+                "previous_close": series.previous_close,
+                "category": series.category,
             },
             "fetched_at": now,
         }

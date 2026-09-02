@@ -86,6 +86,17 @@ class FakeServer:
         self.stop()
 
 
+class _Everything(dict):
+    """A route table that answers every path with the same handler."""
+
+    def __init__(self, handler):
+        super().__init__()
+        self._handler = handler
+
+    def get(self, path, default=None):
+        return self._handler
+
+
 def coingecko_routes(server):
     """The happy-path CoinGecko surface from the recorded fixtures."""
     server.route("/coins/markets", body=fixture("coingecko_markets.json"))
@@ -125,3 +136,36 @@ def yahoo_routes(server):
     server.handler("/v8/finance/spark", guarded("yahoo_spark.json"))
     server.handler("/v1/finance/search", guarded("yahoo_search.json"))
     return server
+
+
+if __name__ == "__main__":
+    # A standalone server for trying the widget by hand:
+    #   python3 tests/fakeserver.py --mode 429      # every request is throttled
+    #   python3 tests/fakeserver.py --mode ok       # the recorded fixtures
+    # then point the helper at it:
+    #   MARKETS_COINGECKO_URL=http://127.0.0.1:PORT MARKETS_YAHOO_URL=http://127.0.0.1:PORT bin/markets snapshot
+    import argparse
+    import signal
+
+    parser = argparse.ArgumentParser(description="Serve the recorded fixtures, or answer 429 to everything.")
+    parser.add_argument("--mode", choices=("ok", "429"), default="ok")
+    parser.add_argument("--retry-after", type=int, default=60,
+                        help="Retry-After header in 429 mode; above 8 the helper gives up at once")
+    opts = parser.parse_args()
+    srv = FakeServer()
+    if opts.mode == "429":
+        def throttled(query, path):
+            return 429, {"Retry-After": str(opts.retry_after)}, b'{"status":{"error_message":"throttled"}}'
+        srv.handler("*", throttled)
+        srv.routes = _Everything(throttled)
+    else:
+        yahoo_routes(coingecko_routes(srv))
+    srv.start()
+    print(srv.base_url, flush=True)
+    signal.signal(signal.SIGINT, lambda *a: srv.stop())
+    try:
+        while srv._server is not None:
+            signal.pause()
+    except (KeyboardInterrupt, AttributeError):
+        pass
+    srv.stop()

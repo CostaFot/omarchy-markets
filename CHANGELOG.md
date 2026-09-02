@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.0
+
+- The chart on an instrument's page: 1D, 1W, 1M, 1Y and 5Y, switched with `←`/`→`, `h`/`l`, the keys `1`–`5` or the tabs. The line is coloured by the range's direction, the min and max are labelled at the right edge, the first and last times sit under the plot, and the day chart of a stock or currency draws yesterday's close as a dashed line. Under it, the move across the range: `▼ -$85.49 (-0.11%) · 1D`.
+- Switching range keeps the previous chart up until the new one lands; a range that fails keeps the chart and says why. Charts are cached for five minutes, in the panel and in the helper, so revisiting a tab costs nothing.
+- Rate limiting is now a latch, as on Windows: a throttled poll writes `rate-limit.json`, every document reports `rate_limited` until a request succeeds, and the panel shows an amber banner at the top of every page while it holds. The bar's pause glyph follows it, and any kept last-good price in the strip. `showRateLimitErrors: false` hides the banner; the flag still rides.
+- `omarchy-shell costafot.markets status | jq` prints what this bar instance shows: page, staleness, the strip text and width budget, the chart state.
+- Helper: `candles` documents carry `min max min_text max_text first_label last_label previous_close previous_close_text category`; `snapshot --max-age 0` fetches everything (a forced refresh in the same second as a poll was a cache read). `python3 tests/fakeserver.py --mode 429` serves a throttling provider for trying the banner by hand.
+- 123 offline tests.
+
 ## 0.4.0
 
 - The panel is now a hub: Search, Watchlist, Favorites, and placeholders for Portfolio, News, Data sources and Settings. Pages stack; Escape and Backspace walk back, Escape on the hub closes, and backing out of a page lands on the row that opened it with the filter still typed.

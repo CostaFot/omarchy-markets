@@ -175,6 +175,15 @@ class YahooParsing(unittest.TestCase):
         self.assertLess(series.points[-1][1], 100)
         self.assertEqual(series.to_dict()["price_text"], "£15.45")
 
+    def test_day_chart_carries_the_previous_close_scaled(self):
+        day = self.yahoo.candles(AAPL, "1D")
+        self.assertEqual(day.previous_close, 325.13)
+        self.assertEqual(day.to_dict()["previous_close_text"], "$325.13")
+        self.assertEqual(day.category, "stock")
+        pence = self.yahoo.candles(HSBA, "1D")
+        self.assertLess(pence.previous_close, 100)
+        self.assertIsNone(self.yahoo.candles(AAPL, "5Y").previous_close)
+
     def test_unknown_symbol_chart_is_invalid_with_not_found(self):
         series = self.yahoo.candles(NOPE, "1D")
         self.assertFalse(series.valid)

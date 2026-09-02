@@ -189,4 +189,5 @@ class CoinGecko(Provider):
             points.append([ts, close])
         if not points:
             return CandleSeries.invalid(instrument.symbol, rng, "No chart data for this range")
-        return CandleSeries(instrument.symbol, rng, downsample(points), valid=True, message=note, currency="USD")
+        return CandleSeries(instrument.symbol, rng, downsample(points), valid=True, message=note, currency="USD",
+                            category=instrument.category)
