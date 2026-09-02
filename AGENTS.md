@@ -4,9 +4,9 @@ Before committing, re-read this file, the README and CHANGELOG against what actu
 
 The multi-session port plan (architecture, per-session scope, acceptance criteria) lives in `~/.claude/plans/alright-i-would-like-mossy-gosling.md`. The Windows original is `~/Work/MarketExtension` (C#); `~/Work/tickerbar` is a reference for the Quickshell side.
 
-## What exists (0.2.0)
+## What exists (0.3.0)
 
-The data core plus the first QML: the bar strip and a one-page watchlist panel.
+The data core with two keyless providers, plus the first QML: the bar strip and a one-page watchlist panel.
 
 ```
 BarWidget.qml                strip: coloured PlainText runs, width degradation, Loader(Panel.qml), IpcHandler
@@ -15,17 +15,17 @@ Store.qml                    QtObject: runs bin/markets via Process, holds the s
 bin/markets                  entry: fixes sys.path, calls marketslib.cli.main
 bin/marketslib/cli.py        argv → one JSON line, exit 0, always
 bin/marketslib/repo.py       provider routing, snapshot, strip, search, candles, membership
-bin/marketslib/providers/    Provider base + coingecko.py
+bin/marketslib/providers/    Provider base + coingecko.py (crypto) + yahoo.py (stocks, indices, FX)
 bin/marketslib/cache.py      QuoteCache (keep-last-good) + CandleCache (5 min TTL)
 bin/marketslib/store.py      Watchlist: watchlist + favorites on disk, seed, corrupt-file recovery
 bin/marketslib/fmt.py        every number → string (port of CurrencyFormat/UiQuote/UiCandleSeries)
 bin/marketslib/http.py       capped, redirect-refusing GET with 429 back-off
-bin/marketslib/models.py     Instrument / Quote / CandleSeries, categories, ranges
+bin/marketslib/models.py     Instrument / Quote / CandleSeries, categories, ranges, downsample
 bin/marketslib/state.py      state dir, atomic 0600 JSON writes
-tests/                       stdlib unittest; fakeserver.py + fixtures/, no real network
+tests/                       stdlib unittest; fakeserver.py + fixtures/ (captured live, trimmed), no real network
 ```
 
-State dir: `${XDG_STATE_HOME:-~/.local/state}/omarchy/costafot.markets/` (`MARKETS_STATE_DIR` overrides). Files: `watchlist.json`, `quotes-cache.json`, `candles-cache.json`, `coin-ids.json`. QML never touches them.
+State dir: `${XDG_STATE_HOME:-~/.local/state}/omarchy/costafot.markets/` (`MARKETS_STATE_DIR` overrides). Files: `watchlist.json`, `quotes-cache.json`, `candles-cache.json`, `coin-ids.json` (CoinGecko symbol → id), `yahoo-meta.json` (Yahoo wire symbol → name, currency, type, exchange). QML never touches them.
 
 ## The QML side
 
@@ -46,7 +46,9 @@ Envelope on every document: `schema_version:1, command, ok, error, generated_at,
 
 `Quote` fields: `symbol name category price change change_pct currency valid stale updated_at price_text change_text dir`. `dir` is `up|down|flat`; flat renders like up (▲, per `UiQuote.IsUp`). `strip[]` entries: `symbol label value_text dir valid stale`.
 
-Category of a bare symbol: the tracked entry's category, else `currency` for a 6-letter pair of known codes, else `stock`. Pass `SYM:crypto` to force one. `watchlist add` of a new symbol requires the category.
+Category of a bare symbol: the tracked entry's category, else `currency` for a 6-letter pair of known codes or anything spelled `XXXYYY=X`, else `stock` (`^GSPC`, `HSBA.L`, `BRK-B` pass through). Yahoo's `EURUSD=X` spelling is accepted anywhere a symbol is and stored as `EURUSD` with `provider_ids.yahoo`. Pass `SYM:crypto` to force a category. `watchlist add` of a new symbol requires the category.
+
+Provider order is `[Yahoo, CoinGecko]`, first `supports(category)` wins: stocks and currencies go to Yahoo, crypto to CoinGecko. Attribution rows list only the providers that served valid data this run.
 
 ## Hard-won constraints — do not re-litigate without re-testing
 
@@ -55,7 +57,12 @@ Category of a bare symbol: the tracked entry's category, else `currency` for a 6
 - **`snapshot --max-age S` is how multiple bars share one fetch.** It is a pure cache read when every observed symbol was attempted within S seconds. The QML poller uses 30.
 - **CoinGecko public tier, verified live 2026-09-02:** `/coins/markets?symbols=btc&include_tokens=top` works (top-ranked coin per symbol); `ids=` is used whenever the id is known (seed, search result, learned). `market_chart?days>365` → HTTP 401, so 5Y clamps to 365 with a note in `series.message`. `days=30` returns hourly points (721), thinned to 300 by `downsample()`. Rate limit is unpublished and low: at most two calls per poll, one per chart.
 - **All HTTP goes through `http.get_json`**: 1 MiB cap read one byte at a time (so the deadline is checked between reads), redirects refused, 429 retried at most 3 times honouring `Retry-After`, giving up when the wait would exceed 8 s. `http.RATE_LIMITED` is process-wide like the C# `RateLimitSignal`. `MARKETS_BACKOFF_SCALE=0` makes tests instant.
-- **Yahoo Finance (session 3) refuses default library user agents.** `python-urllib/3.14` and curl's default get HTTP 429; our `costafot.markets/<version>` is accepted (verified 2026-09-03). `http.get` already sends it on every request; do not drop it. Yahoo is unofficial: a 404, 429 or shape change must become `valid:false` rows, never an exception.
+- **Yahoo Finance refuses default library user agents.** `python-urllib/3.14` and curl's default get HTTP 429; our `costafot.markets/<version>` is accepted (verified 2026-09-03). `http.get` sends it on every request and the fake server answers 429 without it; do not drop it. Yahoo is unofficial: a 404, 429 or shape change must become `valid:false` rows, never an exception (`test_garbage_bodies_are_invalid_rows`).
+- **Yahoo quotes are two-tier so steady state is one call per poll.** `v8/finance/spark?symbols=A,B,C` prices many symbols in one call but carries no currency or name and silently drops unknown symbols, so it is only used for symbols whose currency is already in `yahoo-meta.json`. First sight of a symbol is one `v8/finance/chart/{sym}?range=1d&interval=5m`, which prices it from `meta.regularMarketPrice`/`previousClose` and learns its meta. A symbol Yahoo does not know (404) learns nothing and costs one chart call every poll; bounded, accepted. `v7/finance/quote` is 401 (cookie + crumb): never use it.
+- **Yahoo partial failures stay partial.** A failed chart call inside a batch becomes an invalid row plus a `Provider.take_errors()` entry that the repo folds into `errors`; only when nothing at all came back does `quotes()` raise, so the repo records one outage for the batch like any provider. After the first 429 in a run the remaining chart calls are skipped (`http.RATE_LIMITED`), so a rate-limited poll cannot take five symbols × three retries.
+- **Pence.** LSE quotes arrive as `currency:"GBp"` in pence; `fmt.currency_scale` gives `("GBP", 0.01)` and both quotes and every candle point are scaled. `yahoo-meta.json` keeps the raw `GBp` so the spark path knows to scale.
+- **Search merge order was measured, not guessed.** An exact symbol match that its own provider ranked in its top three leads (`sol` → SOL the coin, `hsbc` → HSBC the stock), the rest alternate between providers, capped at 15, deduped per (symbol, category). CoinGecko lists a junk coin whose symbol is `APPLE` and tokenised stocks like `AAPL` as crypto; `apple` must still return AAPL the stock first. Live results for eight queries are in the session-3 commit message.
+- **Every test environment must set `MARKETS_YAHOO_URL`** as well as `MARKETS_COINGECKO_URL`: the seed watchlist has stocks and FX, so a `snapshot` in a test without it reaches the real Yahoo (it happened once, caught by an attribution assertion).
 - **Keys never in a URL.** CoinGecko's optional key is a header (`x-cg-demo-api-key`); `http.redact()` masks `apikey/token/key` in `MARKETS_DEBUG` output. Nothing logs a body.
 - **Formatting is Python's job** (`fmt.py`), rounding half-up to match .NET's `decimal.ToString`. QML renders strings and picks a colour from `dir`; it never formats a number.
 - **Favorites seed diverges from Windows on purpose** (BTC/ETH/SOL starred) so the strip is not empty on first run.
@@ -73,6 +80,9 @@ mkdir -p /tmp/qmlimports && ln -sfn /usr/share/omarchy/shell /tmp/qmlimports/qs
 /usr/lib/qt6/bin/qmllint -I /tmp/qmlimports *.qml | grep -v 'on type "QObject"'   # qmllint is not on PATH
 MARKETS_STATE_DIR=$(mktemp -d) bin/markets snapshot | jq '.strip'   # live
 MARKETS_DEBUG=1 bin/markets quotes BTC >/dev/null                    # request log on stderr
+bin/markets quotes AAPL EURUSD HSBA.L BTC | jq -c '.quotes[] | [.symbol,.valid,.price_text]'   # 4 valid, HSBA in £
+bin/markets candles AAPL 5Y | jq '.series | {valid, n, message}'    # real 5Y, 263 weekly points, no note
+MARKETS_DEBUG=1 bin/markets snapshot 2>&1 >/dev/null | grep -c yahoo   # 1 on the second run (one spark call)
 ```
 
 ## Dev loop
@@ -92,6 +102,6 @@ Every QML `Text` sets `textFormat: Text.PlainText` (remote strings are rendered;
 
 ## Roadmap (one session each; details in the plan file)
 
-~~2 bar strip + watchlist panel~~ (done, 0.2.0) · **3 Yahoo Finance provider**, keyless stocks/indices/FX, search, 1D–5Y candles (Python only) · 4 hub, search, favorites, detail, membership · 5 chart, ranges, rate-limit banner · 6 portfolio (Frankfurter rates only) · 7 keys (secret-tool), demo mode, settings page · 8 optional keyed providers: Twelve Data, Finnhub quotes · 9 news + ticker · 10 release polish 1.0.0
+~~2 bar strip + watchlist panel~~ (done, 0.2.0) · ~~3 Yahoo Finance provider~~ (done, 0.3.0) · **4 hub, search, favorites, detail, membership** · 5 chart, ranges, rate-limit banner · 6 portfolio (Frankfurter rates only) · 7 keys (secret-tool), demo mode, settings page · 8 optional keyed providers: Twelve Data, Finnhub quotes · 9 news + ticker · 10 release polish 1.0.0
 
 Revised 2026-09-03 after reviewing stochi, omarchy-stocks and OmaStockTicker; what was borrowed and what was rejected is in `~/.claude/plans/hey-i-found-3-ticklish-cake.md`.

@@ -4,7 +4,7 @@ import json
 import os
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
 FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
 
@@ -19,7 +19,9 @@ def fixture_json(name):
 
 
 class FakeServer:
-    """routes: path -> (status, headers, body) or callable(query, path) -> that tuple."""
+    """routes: path -> (status, headers, body) or callable(query, path) -> that tuple.
+    Paths are matched decoded ("/v8/finance/chart/EURUSD=X"). Every request is
+    recorded as (path, query, headers)."""
 
     def __init__(self):
         self.routes = {}
@@ -45,13 +47,14 @@ class FakeServer:
         class Handler(BaseHTTPRequestHandler):
             def do_GET(self):
                 parts = urlsplit(self.path)
+                path = unquote(parts.path)
                 query = {k: v[0] for k, v in parse_qs(parts.query, keep_blank_values=True).items()}
-                server.requests.append((parts.path, query))
-                r = server.routes.get(parts.path)
+                server.requests.append((path, query, {k.lower(): v for k, v in self.headers.items()}))
+                r = server.routes.get(path)
                 if r is None:
                     status, headers, body = 404, {}, b'{"error":"not found"}'
                 elif callable(r):
-                    status, headers, body = r(query, parts.path)
+                    status, headers, body = r(query, path)
                 else:
                     status, headers, body = r
                 self.send_response(status)
@@ -88,4 +91,37 @@ def coingecko_routes(server):
     server.route("/coins/markets", body=fixture("coingecko_markets.json"))
     server.route("/search", body=fixture("coingecko_search.json"))
     server.route("/coins/bitcoin/market_chart", body=fixture("coingecko_chart.json"))
+    return server
+
+
+def yahoo_routes(server):
+    """The happy-path Yahoo surface from the recorded fixtures. Yahoo refuses
+    requests without a real User-Agent, so the fake does too (429)."""
+    # The seed watchlist's other symbols reuse the AAPL / EURUSD bodies so a
+    # snapshot prices everything on first sight; only ZZZZQQ is unknown.
+    charts = {
+        "/v8/finance/chart/AAPL": "yahoo_chart_aapl.json",
+        "/v8/finance/chart/MSFT": "yahoo_chart_aapl.json",
+        "/v8/finance/chart/NVDA": "yahoo_chart_aapl.json",
+        "/v8/finance/chart/HSBA.L": "yahoo_chart_hsba.json",
+        "/v8/finance/chart/EURUSD=X": "yahoo_chart_eurusd.json",
+        "/v8/finance/chart/GBPUSD=X": "yahoo_chart_eurusd.json",
+        "/v8/finance/chart/USDJPY=X": "yahoo_chart_eurusd.json",
+    }
+
+    def guarded(name, status=200):
+        def handler(query, path):
+            ua = [r[2].get("user-agent", "") for r in server.requests][-1]
+            if not ua.startswith("costafot.markets/"):
+                return 429, {}, b"Too Many Requests"
+            if path == "/v8/finance/chart/AAPL" and query.get("range") == "5y":
+                return 200, {}, fixture("yahoo_chart_5y.json")
+            return status, {}, fixture(name)
+        return handler
+
+    for path, name in charts.items():
+        server.handler(path, guarded(name))
+    server.handler("/v8/finance/chart/ZZZZQQ", guarded("yahoo_chart_404.json", status=404))
+    server.handler("/v8/finance/spark", guarded("yahoo_spark.json"))
+    server.handler("/v1/finance/search", guarded("yahoo_search.json"))
     return server

@@ -83,6 +83,16 @@ def normalize_stock_quote(raw_currency, price, change):
     return code.upper(), price, change
 
 
+def currency_scale(raw_currency):
+    """("GBP", 0.01) for pence, (code, 1.0) otherwise — for scaling whole series."""
+    code = (raw_currency or "").strip()
+    if not code:
+        return "USD", 1.0
+    if is_pence(code):
+        return "GBP", 0.01
+    return code.upper(), 1.0
+
+
 def normalize_code(raw_currency):
     code = (raw_currency or "").strip()
     if not code:

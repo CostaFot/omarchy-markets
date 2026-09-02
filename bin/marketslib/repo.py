@@ -13,8 +13,11 @@ from . import fmt, http
 from .cache import CandleCache, QuoteCache
 from .models import CATEGORIES, CandleSeries, Instrument, Quote, normalize
 from .providers.coingecko import CoinGecko
+from .providers.yahoo import Yahoo, plain_symbol
 from .state import read_json, state_dir, write_json_atomic
 from .store import Watchlist
+
+SEARCH_LIMIT = 15
 
 SETTING_DEFAULTS = {
     "demoMode": False,
@@ -51,21 +54,29 @@ class Repository:
         self.watchlist = Watchlist(os.path.join(self.dir, "watchlist.json"))
         self.quote_cache = QuoteCache(os.path.join(self.dir, "quotes-cache.json"))
         self.candle_cache = CandleCache(os.path.join(self.dir, "candles-cache.json"))
-        self.coin_ids_path = os.path.join(self.dir, "coin-ids.json")
-        try:
-            ids = read_json(self.coin_ids_path, {})
-        except ValueError:
-            ids = {}
-        self.coin_ids = ids if isinstance(ids, dict) else {}
+        self.caches = {}  # cache_file basename -> the dict injected into that provider
+        self.coin_ids = self._load_cache(CoinGecko.cache_file)
+        self.yahoo_meta = self._load_cache(Yahoo.cache_file)
         self.providers = self._build_providers()
         self.errors = []  # FetchError dicts collected during this run
         self.served_by = set()  # provider ids that returned valid data this run
 
+    def _load_cache(self, name):
+        """A provider's learned dict from the state dir; a corrupt file is an empty dict."""
+        try:
+            data = read_json(os.path.join(self.dir, name), {})
+        except ValueError:
+            data = {}
+        cache = data if isinstance(data, dict) else {}
+        self.caches[name] = cache
+        return cache
+
     def _build_providers(self):
-        # Fixed order. Later sessions insert Demo (exclusive), Twelve Data and
-        # Finnhub (keyed) and Frankfurter ahead of CoinGecko; CoinGecko stays
-        # last so a keyless install still prices crypto.
-        return [CoinGecko(id_cache=self.coin_ids)]
+        # Fixed order: first provider that supports a category wins. Later
+        # sessions insert Demo (exclusive), Twelve Data and Finnhub (keyed)
+        # ahead of Yahoo; CoinGecko stays last so a keyless install still
+        # prices crypto.
+        return [Yahoo(meta_cache=self.yahoo_meta), CoinGecko(id_cache=self.coin_ids)]
 
     # ---- providers -------------------------------------------------------
     def active_providers(self):
@@ -99,15 +110,13 @@ class Repository:
         return rows
 
     def persist_learned(self):
-        changed = False
         for p in self.active_providers():
             for sym, pid in p.learned_ids().items():
-                if self.coin_ids.get(sym) != pid:
-                    self.coin_ids[sym] = pid
-                    changed = True
                 self.watchlist.merge_provider_ids(sym, {p.id: pid})
-        if changed:
-            write_json_atomic(self.coin_ids_path, self.coin_ids)
+            if p.cache_file and p.learned_cache():
+                cache = self.caches.setdefault(p.cache_file, {})
+                cache.update(p.learned_cache())
+                write_json_atomic(os.path.join(self.dir, p.cache_file), cache)
 
     def flush(self):
         self.quote_cache.save()
@@ -115,23 +124,33 @@ class Repository:
         self.persist_learned()
 
     # ---- instruments -----------------------------------------------------
-    def guess_category(self, symbol):
+    def canonical_symbol(self, symbol):
+        """The neutral symbol plus any provider id the spelling implied:
+        'eurusd=x' -> ('EURUSD', {'yahoo': 'EURUSD=X'}); '^GSPC' -> ('^GSPC', {})."""
         s = normalize(symbol)
+        plain = plain_symbol(s)
+        if plain != s:
+            return plain, {"yahoo": s}
+        return s, {}
+
+    def guess_category(self, symbol):
+        s, ids = self.canonical_symbol(symbol)
+        if ids.get("yahoo"):
+            return "currency"
         if len(s) == 6 and s[:3] in FX_CODES and s[3:] in FX_CODES:
             return "currency"
         return "stock"
 
     def instrument_for(self, spec):
-        """'BTC' or 'DOGE:crypto' -> Instrument, preferring the tracked entry."""
+        """'BTC', 'DOGE:crypto' or 'EURUSD=X' -> Instrument, preferring the tracked entry."""
         sym, _, cat = str(spec).partition(":")
-        sym = normalize(sym)
+        sym, ids = self.canonical_symbol(sym)
         cat = cat.strip().lower()
         known = self.watchlist.instrument(sym)
         if known and (not cat or cat == known.category):
             return known
         if cat not in CATEGORIES:
-            cat = self.guess_category(sym)
-        ids = {}
+            cat = self.guess_category(sym if not ids else ids["yahoo"])
         if cat == "crypto" and self.coin_ids.get(sym):
             ids["coingecko"] = self.coin_ids[sym]
         return Instrument(sym, known.name if known else sym, cat, ids)
@@ -160,6 +179,8 @@ class Repository:
                 self.errors.append({**e.to_dict(), "provider": p.id})
                 for inst in batch:
                     by_symbol[normalize(inst.symbol)] = Quote.invalid(inst)
+            for e in p.take_errors():
+                self.errors.append({**e.to_dict(), "provider": p.id})
         for inst in unserviceable:
             by_symbol[normalize(inst.symbol)] = Quote.invalid(inst)
         return [by_symbol.get(normalize(i.symbol)) or Quote.invalid(i) for i in instruments]
@@ -233,18 +254,38 @@ class Repository:
         return {"quotes": [q.to_dict() for q in quotes]}
 
     def search(self, query):
+        """Every active provider's results merged, at most SEARCH_LIMIT rows.
+
+        Order: an exact symbol match that its own provider ranked in its top
+        three comes first (`sol` → SOL the coin, `hsbc` → HSBC the stock),
+        then the rest alternate between providers so a 15-row stock list
+        cannot push every coin past the cap. A low-ranked exact match stays
+        low: CoinGecko lists a junk coin whose symbol is APPLE, and `apple`
+        must still find AAPL first. Duplicates collapse per (symbol,
+        category): SOL the stock and SOL the coin both survive, while two
+        stock providers dedupe. Measured against live results 2026-09-03."""
         query = str(query or "").strip()
-        merged = {}
+        wanted = normalize(query)
+        lists = []
         for p in self.active_providers():
             try:
-                for inst in p.search(query):
-                    merged.setdefault(inst.symbol, inst)
-                    if inst.provider_ids:
-                        self.served_by.add(p.id)
+                found = p.search(query)
             except http.FetchError as e:
                 self.errors.append({**e.to_dict(), "provider": p.id})
+                continue
+            if any(i.provider_ids for i in found):
+                self.served_by.add(p.id)
+            lists.append(found)
+        promoted, rest = [], []
+        for found in lists:
+            for rank, inst in enumerate(found):
+                (promoted if rank < 3 and inst.symbol == wanted else rest).append((rank, inst))
+        rest.sort(key=lambda r: r[0])  # round-robin: every provider's first, then every second, ...
+        merged = {}
+        for _, inst in promoted + rest:
+            merged.setdefault((inst.symbol, inst.category), inst)
         results = []
-        for inst in merged.values():
+        for inst in list(merged.values())[:SEARCH_LIMIT]:
             in_wl, is_fav = self.watchlist.flags(inst.symbol)
             parts = []
             if in_wl:

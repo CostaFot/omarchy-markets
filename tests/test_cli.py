@@ -9,7 +9,7 @@ import unittest
 
 import _paths  # noqa: F401
 from _paths import ROOT
-from fakeserver import FakeServer, coingecko_routes
+from fakeserver import FakeServer, coingecko_routes, yahoo_routes
 
 BIN = os.path.join(ROOT, "bin", "markets")
 
@@ -17,11 +17,12 @@ BIN = os.path.join(ROOT, "bin", "markets")
 class Cli(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.server = coingecko_routes(FakeServer().start())
+        self.server = yahoo_routes(coingecko_routes(FakeServer().start()))
         self.env = dict(os.environ)
         self.env.update({
             "MARKETS_STATE_DIR": self.tmp.name,
             "MARKETS_COINGECKO_URL": self.server.base_url,
+            "MARKETS_YAHOO_URL": self.server.base_url,
             "MARKETS_BACKOFF_SCALE": "0",
             "MARKETS_SOCKET_TIMEOUT": "5",
             "MARKETS_TOTAL_TIMEOUT": "5",
@@ -70,9 +71,12 @@ class Cli(unittest.TestCase):
         self.assertIsNone(doc["error"])
         self.assertEqual([e["label"] for e in doc["strip"]], ["BTC", "ETH", "SOL"])
         self.assertEqual(doc["quotes"]["BTC"]["price_text"], "$77,356.00")
+        self.assertEqual(doc["quotes"]["AAPL"]["price_text"], "$324.96")
+        self.assertEqual(doc["quotes"]["EURUSD"]["price_text"], "1.1592")
+        self.assertTrue(doc["quotes"]["MSFT"]["valid"])
         self.assertEqual(len(doc["instruments"]), 9)
-        self.assertEqual(doc["attribution"][0]["label"], "Data by CoinGecko")
-        self.assertEqual([r["kind"] for r in doc["status_rows"]], ["no_provider"])
+        self.assertEqual([a["label"] for a in doc["attribution"]], ["Data by Yahoo Finance", "Data by CoinGecko"])
+        self.assertEqual(doc["status_rows"], [])
         self.assertFalse(doc["cached"])
 
     def test_snapshot_max_age_reuses_the_cache(self):
@@ -133,7 +137,8 @@ class Cli(unittest.TestCase):
     def test_status_reports_providers_and_state_dir(self):
         doc = self.run_cli("status")
         self.assertEqual(doc["state_dir"], self.tmp.name)
-        self.assertEqual(doc["providers"][0]["id"], "coingecko")
+        self.assertEqual([p["id"] for p in doc["providers"]], ["yahoo", "coingecko"])
+        self.assertEqual(doc["providers"][0]["supports"], ["stock", "currency"])
         self.assertEqual(doc["tracked"], 9)
 
 

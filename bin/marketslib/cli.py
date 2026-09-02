@@ -19,7 +19,7 @@ import sys
 import time
 
 from . import http, plugin_version
-from .models import RANGES, is_category, normalize
+from .models import RANGES, is_category
 from .models import Instrument
 from .repo import Repository, Settings
 from .state import state_dir
@@ -185,7 +185,7 @@ def _instrument_args(repo, args, need_category):
     """SYM [CAT NAME...] -> Instrument. Falls back to the tracked entry's details."""
     if not args:
         raise BadArgs("missing symbol")
-    sym = normalize(args[0])
+    sym, implied_ids = repo.canonical_symbol(args[0])
     if not sym:
         raise BadArgs("missing symbol")
     cat = args[1].lower() if len(args) > 1 else ""
@@ -199,10 +199,11 @@ def _instrument_args(repo, args, need_category):
         elif need_category:
             raise BadArgs("category (stock|crypto|currency) is required for a new symbol")
         else:
-            cat = repo.guess_category(sym)
+            cat = repo.guess_category(implied_ids.get("yahoo") or sym)
     if not name:
         name = known.name if known else sym
     ids = dict(known.provider_ids) if known else {}
+    ids.update(implied_ids)
     if cat == "crypto" and repo.coin_ids.get(sym):
         ids.setdefault("coingecko", repo.coin_ids[sym])
     return Instrument(sym, name, cat, ids)

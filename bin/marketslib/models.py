@@ -10,6 +10,16 @@ CATEGORY_LABELS = {"stock": "Stocks", "crypto": "Crypto", "currency": "Currency"
 
 RANGES = ("1D", "1W", "1M", "1Y", "5Y")
 RANGE_DAYS = {"1D": 1, "1W": 7, "1M": 31, "1Y": 365, "5Y": 365 * 5}
+MAX_POINTS = 300  # what one chart carries to QML, whatever the provider returned
+
+
+def downsample(points, limit=MAX_POINTS):
+    """Evenly thin a series to `limit` points, always keeping the first and last."""
+    n = len(points)
+    if n <= limit:
+        return points
+    step = (n - 1) / (limit - 1)
+    return [points[round(i * step)] for i in range(limit)]
 
 
 def normalize(symbol):

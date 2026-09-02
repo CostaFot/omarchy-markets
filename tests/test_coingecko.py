@@ -6,8 +6,8 @@ from unittest import mock
 import _paths  # noqa: F401
 from fakeserver import FakeServer, coingecko_routes, fixture
 from marketslib import http
-from marketslib.models import Instrument
-from marketslib.providers.coingecko import CoinGecko, downsample
+from marketslib.models import Instrument, downsample
+from marketslib.providers.coingecko import CoinGecko
 
 BTC = Instrument("BTC", "Bitcoin", "crypto", {"coingecko": "bitcoin"})
 ETH = Instrument("ETH", "Ethereum", "crypto")

@@ -12,4 +12,5 @@ Backlog, not commitments. Dead ideas stay here marked as such so they are not re
 - Search-as-you-type with a ~260 ms debounce and Tab to fill the highlighted ticker (stochi). Rejected for 1.0 because search is Enter-only by design; cheap to revisit now that stock search is Yahoo's.
 - Market state on the detail hero (OPEN / PRE / AFTER / CLOSED from Yahoo's `currentTradingPeriod`, as stochi shows it). Needs the per-symbol `chart` call, not the `spark` batch.
 - Yahoo as a crypto fallback (`BTC-USD` form) when CoinGecko is rate-limited. Routing is first-`supports`, so this needs a "next provider on invalid" rule; not added casually.
-- The Yahoo `spark` batch already returns a day of closes per symbol, so a per-strip sparkline costs no extra request once session 3 lands.
+- The Yahoo `spark` batch already returns a day of closes per symbol, so a per-strip sparkline for stocks and FX costs no extra request (the helper drops them today).
+- Remember Yahoo 404s in `yahoo-meta.json` with a timestamp so an unknown or delisted symbol is retried hourly instead of every poll.

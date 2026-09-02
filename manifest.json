@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "costafot.markets",
   "name": "Markets",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "author": "CostaFot",
   "license": "MIT",
   "description": "Stocks, crypto and currencies in the bar: a live ticker strip plus a keyboard-driven panel with search, watchlist, favorites, portfolio, news and charts.",

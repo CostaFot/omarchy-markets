@@ -19,11 +19,10 @@ import urllib.parse
 from datetime import datetime, timezone
 
 from .. import http
-from ..models import RANGE_DAYS, CandleSeries, Instrument, Quote, normalize
+from ..models import RANGE_DAYS, CandleSeries, Instrument, Quote, downsample, normalize
 from . import Provider
 
 DEFAULT_BASE = "https://api.coingecko.com/api/v3"
-MAX_POINTS = 300
 MAX_DAYS_PUBLIC = 365
 SEARCH_LIMIT = 15
 
@@ -37,18 +36,10 @@ def _to_epoch(iso):
         return 0
 
 
-def downsample(points, limit=MAX_POINTS):
-    """Evenly thin a series to `limit` points, always keeping the first and last."""
-    n = len(points)
-    if n <= limit:
-        return points
-    step = (n - 1) / (limit - 1)
-    return [points[round(i * step)] for i in range(limit)]
-
-
 class CoinGecko(Provider):
     id = "coingecko"
     attribution = {"label": "Data by CoinGecko", "url": "https://www.coingecko.com"}
+    cache_file = "coin-ids.json"  # symbol -> coin id, learned from quotes-by-symbol and search
 
     def __init__(self, base_url=None, api_key=None, id_cache=None):
         self.base = (base_url or os.environ.get("MARKETS_COINGECKO_URL") or DEFAULT_BASE).rstrip("/")
@@ -60,6 +51,9 @@ class CoinGecko(Provider):
         return category == "crypto"
 
     def learned_ids(self):
+        return dict(self._learned)
+
+    def learned_cache(self):
         return dict(self._learned)
 
     # ---- helpers -----------------------------------------------------------
