@@ -622,7 +622,7 @@ Panel {
       out.push({ type: "note", label: "Stocks, indices and currencies", detail: "Yahoo Finance, no key. Unofficial and delayed; see the README." })
       out.push({ type: "note", label: "Crypto", detail: "CoinGecko, no key." })
       out.push({ type: "sep" })
-      out.push({ type: "note", label: "Keys for other providers, demo mode and this page's real form come in a later version." })
+      out.push({ type: "note", label: "Keys for other providers and this page's real form come in a later version." })
     } else if (page === "settings") {
       out.push({ type: "note", label: "The settings page comes in a later version.",
                  detail: "Until then: omarchy bar set, or the costafot.markets entry in ~/.config/omarchy/shell.json." })
@@ -669,8 +669,7 @@ Panel {
           var stamp = Qt.formatTime(new Date(s.generatedAt * 1000), "HH:mm")
           out.push({ type: "footer",
                      label: (s.stale ? "Last good update " : "Updated ") + stamp
-                            + (s.rateLimited ? " · rate-limited" : "")
-                            + (s.demo ? " · demo data" : "") })
+                            + (s.rateLimited ? " · rate-limited" : "") })
         }
       }
     }

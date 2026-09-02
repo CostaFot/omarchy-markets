@@ -177,14 +177,11 @@ class RepositoryRouting(unittest.TestCase):
         self.assertFalse(cleared.rate_limited())
         self.assertFalse(os.path.exists(os.path.join(self.tmp.name, "rate-limit.json")))
 
-    def test_rate_limit_latch_expires_and_never_shows_in_demo(self):
+    def test_rate_limit_latch_expires_after_an_hour(self):
         write_json_atomic(os.path.join(self.tmp.name, "rate-limit.json"), {"since": 1000})
         http.SUCCEEDED = False
         self.assertTrue(Repository(Settings(), directory=self.tmp.name).rate_limited(now=1000 + 600))
         self.assertFalse(Repository(Settings(), directory=self.tmp.name).rate_limited(now=1000 + 7200))
-        write_json_atomic(os.path.join(self.tmp.name, "rate-limit.json"), {"since": 1000})
-        http.RATE_LIMITED = True
-        self.assertFalse(Repository(Settings({"demoMode": True}), directory=self.tmp.name).rate_limited(now=1000))
 
     def test_attribution_only_for_providers_that_served(self):
         self.assertEqual(self.repo.attribution(), [])
@@ -222,7 +219,7 @@ class RepositoryRouting(unittest.TestCase):
         self.assertEqual(s["stripMax"], 3)
         self.assertNotIn("bogus", s)
         self.assertEqual(s["strip"], "favorites")
-        self.assertFalse(s.demo)
+        self.assertNotIn("demoMode", Settings({"demoMode": True}))
 
 
 if __name__ == "__main__":

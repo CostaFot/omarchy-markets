@@ -18,7 +18,6 @@ from ..models import CandleSeries, Quote
 class Provider:
     id = "base"
     attribution = None  # {"label": ..., "url": ...} — shown wherever this provider's data shows
-    is_exclusive = False  # True = only this provider serves (Demo mode)
     supports_news = False
     cache_file = None  # basename in the state dir of this provider's learned dict, or None
 

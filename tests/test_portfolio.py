@@ -211,16 +211,11 @@ class FrankfurterRates(unittest.TestCase):
         frankfurter_routes(self.server)
         self.assertIsNotNone(self.fx.rates_to("USD", ["GBP"], now=1001)["GBP"])
 
-    def test_other_bases_work_and_demo_needs_no_network(self):
+    def test_other_bases_work(self):
         rates = self.fx.rates_to("EUR", ["USD", "GBP"], now=1000)
         self.assertAlmostEqual(rates["USD"], 0.86371, places=4)
         self.assertAlmostEqual(rates["GBP"], 0.86371 / 0.74167, places=3)  # euros per pound
-        demo = Frankfurter(base_url=self.server.base_url, cache={}, demo=True)
-        d = demo.rates_to("EUR", ["GBP", "XXX"], now=1000)
-        self.assertAlmostEqual(d["GBP"], 1.27 / 1.08, places=4)
-        self.assertIsNone(d["XXX"])
         self.assertEqual(len(self.server.hits("/v1/latest")), 1)
-        self.assertFalse(demo.served)
 
 
 if __name__ == "__main__":

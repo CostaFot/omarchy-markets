@@ -8,7 +8,7 @@ may carry both an error and last-good data. QML treats "has data" and
 "has error" as independent facts. A helper that could exit non-zero or
 print a traceback would be a helper that can blank the bar.
 
-Envelope: schema_version, command, ok, error, generated_at, demo,
+Envelope: schema_version, command, ok, error, generated_at,
 rate_limited, cached, attribution[], status_rows[], then the command's
 own payload. See AGENTS.md for the per-command shapes.
 """
@@ -50,7 +50,6 @@ def envelope(command, ok=True, error=None, **payload):
         "ok": bool(ok),
         "error": error,
         "generated_at": int(time.time()),
-        "demo": False,
         "rate_limited": bool(http.RATE_LIMITED),
         "cached": False,
         "attribution": [],
@@ -77,7 +76,6 @@ def _finish(repo, command, payload, ok=True, error=None):
             "message": f"portfolio.json was unreadable and has been set aside (backup: {repo.portfolio.recovered_from})",
         }
     doc = envelope(command, ok=ok, error=error, **payload)
-    doc["demo"] = repo.settings.demo
     doc["rate_limited"] = repo.rate_limited()
     doc["attribution"] = repo.attribution()
     doc["status_rows"] = repo.status_rows()
@@ -125,7 +123,6 @@ def cmd_status(repo, args, now):
     for p in repo.providers:
         providers.append({
             "id": p.id,
-            "active": p in repo.active_providers(),
             "supports": [c for c in ("stock", "crypto", "currency") if p.supports(c)],
             "has_key": bool(getattr(p, "api_key", None)),
         })

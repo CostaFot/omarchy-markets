@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Demo mode is dropped before it was ever built: the keyless providers made it pointless and a toggle that paints invented prices in a finance widget is a footgun. The stubs go with it: the envelope's `demo` field, the `demoMode` setting (now an ignored key), the provider `is_exclusive` flag and Frankfurter's built-in rate table. `status` no longer reports `active` per provider, which was always true.
+
 ## 0.6.0
 
 - The portfolio: a quantity per instrument and, if you like, what you paid per unit. The Portfolio page pins the totals first (value, today's move, total return, what could not be converted) and lists each holding as `AAPL · 10 sh` with its value, today's P&L and total return. An instrument's page gets Add to portfolio, then Edit holding and Remove from portfolio; the holding form takes the quantity and the cost, Enter saves, Tab switches field.

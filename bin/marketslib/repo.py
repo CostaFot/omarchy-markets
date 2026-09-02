@@ -22,7 +22,6 @@ from .store import Portfolio, Watchlist
 SEARCH_LIMIT = 15
 
 SETTING_DEFAULTS = {
-    "demoMode": False,
     "portfolioCurrency": "USD",
     "showRateLimitErrors": True,
     "strip": "favorites",  # favorites | watchlist | portfolio | favorites+portfolio
@@ -44,10 +43,6 @@ class Settings(dict):
             if k in SETTING_DEFAULTS:
                 self[k] = v
 
-    @property
-    def demo(self):
-        return bool(self.get("demoMode"))
-
 
 class Repository:
     def __init__(self, settings=None, directory=None):
@@ -62,7 +57,7 @@ class Repository:
         self.yahoo_meta = self._load_cache(Yahoo.cache_file)
         self.providers = self._build_providers()
         # Rates only, never quotes: the portfolio's converter (see the module).
-        self.fx = Frankfurter(cache=self._load_cache("fx-rates.json"), demo=self.settings.demo)
+        self.fx = Frankfurter(cache=self._load_cache("fx-rates.json"))
         self.errors = []  # FetchError dicts collected during this run
         self.served_by = set()  # provider ids that returned valid data this run
         self._rate_limited = None  # decided once per run by rate_limited()
@@ -79,25 +74,21 @@ class Repository:
 
     def _build_providers(self):
         # Fixed order: first provider that supports a category wins. Later
-        # sessions insert Demo (exclusive), Twelve Data and Finnhub (keyed)
+        # sessions insert Twelve Data and Finnhub (keyed)
         # ahead of Yahoo; CoinGecko stays last so a keyless install still
         # prices crypto.
         return [Yahoo(meta_cache=self.yahoo_meta), CoinGecko(id_cache=self.coin_ids)]
 
     # ---- providers -------------------------------------------------------
-    def active_providers(self):
-        exclusive = [p for p in self.providers if p.is_exclusive]
-        return exclusive or self.providers
-
     def provider_for(self, category):
-        for p in self.active_providers():
+        for p in self.providers:
             if p.supports(category):
                 return p
         return None
 
     def attribution(self):
         seen = []
-        for p in self.active_providers():
+        for p in self.providers:
             if p.id in self.served_by and p.attribution and p.attribution not in seen:
                 seen.append(p.attribution)
         if self.fx.served:
@@ -124,9 +115,7 @@ class Repository:
         except ValueError:
             latch = {}
         since = int(latch.get("since") or 0) if isinstance(latch, dict) else 0
-        if self.settings.demo:
-            result = False
-        elif http.RATE_LIMITED:
+        if http.RATE_LIMITED:
             result = True
             if not since:
                 write_json_atomic(path, {"since": now})
@@ -160,7 +149,7 @@ class Repository:
         return rows
 
     def persist_learned(self):
-        for p in self.active_providers():
+        for p in self.providers:
             for sym, pid in p.learned_ids().items():
                 self.watchlist.merge_provider_ids(sym, {p.id: pid})
                 self.portfolio.merge_provider_ids(sym, {p.id: pid})
@@ -404,7 +393,7 @@ class Repository:
         query = str(query or "").strip()
         wanted = normalize(query)
         lists = []
-        for p in self.active_providers():
+        for p in self.providers:
             try:
                 found = p.search(query)
             except http.FetchError as e:

@@ -22,7 +22,7 @@ QtObject {
 
   // The non-secret scalars the helper understands. Keys it does not know are
   // ignored on its side, so this list can lead the helper by a version.
-  readonly property var helperSettingKeys: ["strip", "stripShowPrice", "stripMax", "demoMode", "portfolioCurrency", "showRateLimitErrors"]
+  readonly property var helperSettingKeys: ["strip", "stripShowPrice", "stripMax", "portfolioCurrency", "showRateLimitErrors"]
 
   // Serialised once so a re-injection of identical settings (every remount
   // does one) is a no-op instead of a refetch.
@@ -64,10 +64,8 @@ QtObject {
   // process (rate-limit.json), so a cached snapshot after a throttled poll
   // still says so, and a throttled chart or search call raises it too.
   property bool rateLimited: false
-  readonly property bool demo: snapshot ? snapshot.demo === true : false
-  // The amber banner (RateLimitHint): only when the user wants it and the
-  // data is live.
-  readonly property bool rateLimitBanner: rateLimited && showRateLimitErrors && !demo
+  // The amber banner (RateLimitHint): only when the user wants it.
+  readonly property bool rateLimitBanner: rateLimited && showRateLimitErrors
   readonly property int generatedAt: snapshot && snapshot.generated_at ? Number(snapshot.generated_at) : 0
 
   // Status rows the helper wants shown, minus the rate-limit row: the
