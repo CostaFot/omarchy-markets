@@ -1,74 +1,110 @@
-# Markets for Omarchy
+# Markets Plugin for Omarchy
 
 <img src="assets/hero.png" width="900" alt="the strip in the bar, the hub, an instrument's page and the portfolio">
 
-Stocks, crypto and currencies in the [Omarchy](https://omarchy.org) bar. A ticker strip, and a panel with search, watchlist, favorites, portfolio and charts, driven from the keyboard. No API keys, no accounts.
+Stocks, crypto and currencies in the [Omarchy](https://omarchy.org) bar. A ticker strip, and a panel with search, watchlist, favorites, portfolio and charts, driven from the keyboard.
 
-A port of the [Markets extension for Command Palette](https://github.com/CostaFot/MarketExtension) on Windows.
+This one is basically a port of another app I made a while back Powertoys on Windows - [Markets extension for Command Palette](https://github.com/CostaFot/MarketExtension)
 
 ```bash
 omarchy plugin add https://github.com/CostaFot/omarchy-markets --enable
 ```
 
+Setting it up from a coding agent? Point it at `~/.config/omarchy/plugins/costafot.markets/AGENTS.md`: every setting, IPC verb and helper command, and `bin/markets` answers in JSON.
+
 ## In the bar
 
-<img src="assets/screenshots/strip-favorites.png" width="900" alt="favorites in the strip">
-<img src="assets/screenshots/strip-favorites-portfolio.png" width="900" alt="the portfolio total, then favorites">
-<img src="assets/screenshots/strip-portfolio.png" width="900" alt="the portfolio total alone">
+<img src="assets/screenshots/strip-favorites.png" width="720" alt="favorites in the strip">
+<img src="assets/screenshots/strip-favorites-portfolio.png" width="720" alt="the portfolio total, then favorites">
+<img src="assets/screenshots/strip-portfolio.png" width="720" alt="the portfolio total alone">
 
-Your favorites as `BTC $77,260 ▼ -0.2%`, in the theme's green and red. With a portfolio, its total and today's move go first (`strip: "favorites+portfolio"`) or alone (`"portfolio"`).
+Your money-losing favorites as `BTC $77,260 ▼ -0.2%`, in the theme's green and red. With a portfolio, its total and today's move go first (`strip: "favorites+portfolio"`) or alone (`"portfolio"`).
 
-Out of the box the favorites are BTC, ETH and SOL.
+Out of the box the favorites are BTC, ETH and SOL just for laughs.
 
-When the bar runs out of room the strip drops entries from the end, then collapses to a single glyph; hover it for the full text. Left click opens the panel, middle click refreshes.
+When the bar runs out of room the strip drops entries from the end, then collapses to a single glyph; hover it for the full text. 
+
+* Left click opens the panel
+* Middle click refreshes.
 
 ## The panel
 
 <p>
-<img src="assets/screenshots/hub.png" width="379" alt="the hub">
-<img src="assets/screenshots/search.png" width="379" alt="search results for apple">
+<img src="assets/screenshots/hub.png" width="300" alt="the hub">
+<img src="assets/screenshots/search.png" width="300" alt="search results for apple">
 </p>
 
-It opens on a hub. Escape or Backspace walks back a page, Escape on the hub closes. The News row is a placeholder for a later version.
+It opens on a hub. Escape or Backspace walks back a page, Escape on the hub closes. 
 
-**Search** takes a symbol or a name and looks it up when you press Enter, never while you type. Results come from both providers, tagged Stock, Crypto or Currency, and say whether the row is already on your watchlist.
+The News row is a placeholder for later when i get to it. A cnbc like news ticker might be fun.
+
+**Search** takes a symbol or a name and looks it up when you press Enter. Results come from both providers, tagged Stock, Crypto or Currency, and say whether the row is already on your watchlist.
 
 <p>
-<img src="assets/screenshots/watchlist.png" width="379" alt="the watchlist">
-<img src="assets/screenshots/watchlist-filter.png" width="379" alt="the watchlist filtered">
+<img src="assets/screenshots/watchlist.png" width="300" alt="the watchlist">
+<img src="assets/screenshots/watchlist-filter.png" width="300" alt="the watchlist filtered">
 </p>
 
-**Watchlist** and **Favorites** list what you track, grouped and priced. Type to filter by symbol or name; Tab moves from the box to the list for `j`/`k`, `/` goes back. The star on a row toggles the favorite.
+**Watchlist** and **Favorites** list what you track, grouped and priced. 
+
+* Type to filter by symbol or name
+* Tab moves from the box to the list for `j`/`k`
+* `/` goes back
+* The star on a row toggles the favorite.
 
 <p>
-<img src="assets/screenshots/detail-btc-1d.png" width="379" alt="BTC with its day chart">
-<img src="assets/screenshots/detail-aapl-5y.png" width="379" alt="AAPL over five years">
+<img src="assets/screenshots/detail-btc-1d.png" width="300" alt="BTC with its day chart">
+<img src="assets/screenshots/detail-aapl-5y.png" width="300" alt="AAPL over five years">
 </p>
 
-**An instrument's page**: the price and change, a chart over 1D, 1W, 1M, 1Y or 5Y with the move across that range under it, then Add or Remove for the watchlist, the favorites and the portfolio. `1`–`5`, `←`/`→` or `h`/`l` switch the range. The day chart of a stock or currency draws yesterday's close as a dashed line. A symbol you found through search is priced on the way in; Add appears once it has a price.
+**An instrument's page**: 
+* the price and change
+* a chart over 1D, 1W, 1M, 1Y or 5Y with the move across that range under it
+* Add or Remove for the watchlist, the favorites and the portfolio
+
+`1`–`5`, `←`/`→` or `h`/`l` switch the range. The day chart of a stock or currency draws yesterday's close as a dashed line.
+
+A symbol you found through search is priced on the way in; Add appears once it has a price.
 
 <p>
-<img src="assets/screenshots/portfolio.png" width="379" alt="the portfolio">
-<img src="assets/screenshots/holding-form.png" width="379" alt="the holding form">
+<img src="assets/screenshots/portfolio.png" width="300" alt="the portfolio">
+<img src="assets/screenshots/holding-form.png" width="300" alt="the holding form">
 </p>
 
-**Portfolio** pins the totals first: what the holdings are worth, today's move, the total return where you recorded what you paid, and how many holdings could not be converted. Under it, one row per holding as `AAPL · 10 sh` with its value, today's P&L and total return. Holdings in other currencies are converted into your portfolio currency (USD unless you say otherwise) with the ECB's daily rates, shown as `£1,545.20 (≈$2,083.41)`. The holding form takes how much you hold and, if you like, the average price you paid per unit; Enter saves.
+**Portfolio** pins the totals first: 
+* what the holdings are worth
+* today's move
+* the total return where you recorded what you paid
+* how many holdings could not be converted
+
+Under it, one row per holding as `AAPL · 10 sh` with its value, today's P&L and total return.
+
+Holdings in other currencies are converted into your portfolio currency (USD unless you say otherwise) with the ECB's daily rates, shown as `£1,545.20 (≈$2,083.41)`.
+
+The holding form takes how much you hold and, if you like, the average price you paid per unit. Enter saves.
 
 <p>
-<img src="assets/screenshots/settings.png" width="379" alt="settings">
-<img src="assets/screenshots/settings-dropdown.png" width="379" alt="the strip mode dropdown">
+<img src="assets/screenshots/settings.png" width="300" alt="settings">
+<img src="assets/screenshots/settings-dropdown.png" width="300" alt="the strip mode dropdown">
 </p>
 
-**Settings** edits the six settings below in the panel. Save writes your shell.json entry once and the strip follows without a restart; Esc cancels.
+**Settings** edits the six settings below in the panel.
+
+* Save writes your shell.json entry once and the strip follows without a restart
+* Esc cancels
 
 <p>
-<img src="assets/screenshots/sources.png" width="379" alt="data sources">
-<img src="assets/screenshots/rate-limit-banner.png" width="379" alt="the rate-limit banner">
+<img src="assets/screenshots/sources.png" width="300" alt="data sources">
+<img src="assets/screenshots/rate-limit-banner.png" width="300" alt="the rate-limit banner">
 </p>
 
 **Data sources** says who prices what, what leaves your machine, and the disclaimers. Enter on a provider opens its site.
 
-The amber banner means a provider throttled the last fetch. The prices on screen are the last known ones, the bar shows a pause glyph next to them, and the banner stays until a fetch succeeds.
+The amber banner means a provider throttled the last fetch.
+
+* the prices on screen are the last known ones
+* the bar shows a pause glyph next to them
+* the banner stays until a fetch succeeds
 
 | Key | Does |
 |---|---|
@@ -108,7 +144,9 @@ The Settings page in the panel edits them; `omarchy bar set costafot.markets str
 
 ## The helper
 
-Everything that touches the network or the disk is `bin/markets`, a Python 3 script with no dependencies. The widget runs it and draws what comes back. You can run it yourself:
+Everything that touches the network or the disk is `bin/markets`, a Python 3 script with no dependencies. The widget runs it and draws what comes back. 
+
+Try it it yourself:
 
 ```bash
 bin/markets snapshot | jq '.strip'
@@ -128,11 +166,17 @@ bin/markets portfolio remove BTC | jq '.held'
 - The stock, index and currency symbols you track go to Yahoo Finance (`query1.finance.yahoo.com`) for the same. No key, no account.
 - When the portfolio holds something priced in a currency other than your portfolio currency, the two currency codes go to Frankfurter (`api.frankfurter.dev`) for the ECB's daily rate, at most once an hour. No key, no account. Quantities never leave the machine.
 
-Nothing else. No telemetry.
+No telemetry.
 
-## A note about stock data
+## The legal bit
 
-Stock, index and currency prices come from an unofficial Yahoo Finance endpoint. It is free and needs no key, but Yahoo publishes no terms for it, does not promise it stays up, and can change or block it without notice. Prices are delayed. If it breaks, the affected rows show a dash and the last known price stays in the panel until it comes back; nothing else in the plugin depends on it. This plugin is not affiliated with Yahoo. Do not trade on it.
+Stock, index and currency prices come from an unofficial Yahoo Finance endpoint. It is free and needs no key, but Yahoo publishes no terms for it, does not promise it stays up, and can change or block it without notice.
+
+* Prices are delayed
+* If it breaks, the affected rows show a dash and the last known price stays in the panel until it comes back
+* Nothing else in the plugin depends on it
+
+This plugin is not affiliated with Yahoo. Do not trade on it.
 
 ## Uninstall
 
@@ -158,3 +202,5 @@ rm -rf ~/.local/state/omarchy/costafot.markets
 **A holding says "not converted".** Its currency is not one the ECB publishes a rate for, or the rates could not be fetched this hour. The row shows its own money and the total leaves it out until a rate is known.
 
 **The strip is not green and red.** The colours come from the active theme's `colors.toml`: `green`/`red`, else the ANSI `color2`/`color1`, else the theme accent for up and urgent for down.
+
+**Can you add my favorite provider?** I accept large sums of money.
