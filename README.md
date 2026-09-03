@@ -1,47 +1,74 @@
 # Markets for Omarchy
 
-Stocks, crypto and currencies in the [Omarchy](https://omarchy.org) bar. A live ticker strip, and a keyboard-driven panel with search, watchlist, favorites, portfolio and charts. No API keys.
+<img src="assets/hero.png" width="900" alt="the strip in the bar, the hub, an instrument's page and the portfolio">
 
-![Markets in the bar](preview.png)
+Stocks, crypto and currencies in the [Omarchy](https://omarchy.org) bar. A ticker strip, and a panel with search, watchlist, favorites, portfolio and charts, driven from the keyboard. No API keys, no accounts.
 
 A port of the [Markets extension for Command Palette](https://github.com/CostaFot/MarketExtension) on Windows.
-
-## Install
 
 ```bash
 omarchy plugin add https://github.com/CostaFot/omarchy-markets --enable
 ```
 
-## Uninstall
-
-```bash
-omarchy plugin remove costafot.markets
-rm -rf ~/.local/state/omarchy/costafot.markets
-```
-
 ## In the bar
 
-The strip lists your favorites as `BTC $77,250 ▲ +0.3%`, the value in your theme's green or red. When the bar runs out of room the strip drops entries from the end, then collapses to a single glyph; hover it for the full text. Left click opens the panel, middle click refreshes.
+<img src="assets/screenshots/strip-favorites.png" width="900" alt="favorites in the strip">
+<img src="assets/screenshots/strip-favorites-portfolio.png" width="900" alt="the portfolio total, then favorites">
+<img src="assets/screenshots/strip-portfolio.png" width="900" alt="the portfolio total alone">
+
+Your favorites as `BTC $77,260 ▼ -0.2%`, in the theme's green and red. With a portfolio, its total and today's move go first (`strip: "favorites+portfolio"`) or alone (`"portfolio"`).
 
 Out of the box the favorites are BTC, ETH and SOL.
 
-The strip can show your portfolio instead, or as well: `strip: "portfolio"` is the holdings' total and today's move, `favorites+portfolio` puts that before the favorites.
+When the bar runs out of room the strip drops entries from the end, then collapses to a single glyph; hover it for the full text. Left click opens the panel, middle click refreshes.
 
 ## The panel
 
-It opens on a hub: Search, Watchlist, Favorites, Portfolio, Data sources and Settings. The News row is a placeholder; news comes in a later version. Pages stack; Escape or Backspace walks back, Escape on the hub closes.
+<p>
+<img src="assets/screenshots/hub.png" width="379" alt="the hub">
+<img src="assets/screenshots/search.png" width="379" alt="search results for apple">
+</p>
 
-- **Search** takes a symbol or a name and looks it up when you press Enter, never while you type. Results come from both providers, tagged Stock, Crypto or Currency, and say whether the row is already on your watchlist. Enter on a result opens it.
-- **Watchlist** lists what you track grouped into Stocks, Crypto and Currencies, priced. Type to filter by symbol or name; Tab moves from the box to the list for `j`/`k`, `/` goes back. The star on a row toggles the favorite.
-- **Favorites** is the same for the starred set, the one the bar strip shows.
-- **Portfolio** pins the totals first: what your holdings are worth, today's move, the total return where you recorded what you paid, and how many holdings could not be converted. Under it, one row per holding as `AAPL · 10 sh` with its value, today's P&L and total return. Holdings in other currencies are converted into your portfolio currency (USD unless you say otherwise) with the ECB's daily rates, shown as `£1,545.20 (≈$2,083.41)`.
-- **Data sources** says who prices what (Yahoo Finance for stocks, indices and currencies, CoinGecko for crypto, the ECB via Frankfurter for the portfolio's rates), what leaves your machine, the disclaimers, and the helper's version and state directory. Enter on a provider opens its site.
-- **Settings** edits the six settings below in the panel: the strip mode, whether it shows prices, how many entries, the refresh interval, the portfolio currency and the rate-limit banner. Save writes your shell.json entry once and the strip follows without a restart; Esc cancels.
-- **An instrument's page** shows the price and change, a chart over 1D, 1W, 1M, 1Y or 5Y with the move across that range under it, then Add or Remove for the watchlist and for favorites, labelled for its current state, then Add to portfolio, or Edit holding and Remove from portfolio once it is held. The holding form takes how much you hold and, if you like, the average price you paid per unit in the instrument's currency; Enter saves. The day chart of a stock or currency marks yesterday's close with a dashed line. A symbol you found through search is priced on the way in; Add appears once it has a price.
+It opens on a hub. Escape or Backspace walks back a page, Escape on the hub closes. The News row is a placeholder for a later version.
 
-![An instrument's page](assets/detail-chart.png)
-![The portfolio](assets/portfolio.png)
-![Settings](assets/settings.png)
+**Search** takes a symbol or a name and looks it up when you press Enter, never while you type. Results come from both providers, tagged Stock, Crypto or Currency, and say whether the row is already on your watchlist.
+
+<p>
+<img src="assets/screenshots/watchlist.png" width="379" alt="the watchlist">
+<img src="assets/screenshots/watchlist-filter.png" width="379" alt="the watchlist filtered">
+</p>
+
+**Watchlist** and **Favorites** list what you track, grouped and priced. Type to filter by symbol or name; Tab moves from the box to the list for `j`/`k`, `/` goes back. The star on a row toggles the favorite.
+
+<p>
+<img src="assets/screenshots/detail-btc-1d.png" width="379" alt="BTC with its day chart">
+<img src="assets/screenshots/detail-aapl-5y.png" width="379" alt="AAPL over five years">
+</p>
+
+**An instrument's page**: the price and change, a chart over 1D, 1W, 1M, 1Y or 5Y with the move across that range under it, then Add or Remove for the watchlist, the favorites and the portfolio. `1`–`5`, `←`/`→` or `h`/`l` switch the range. The day chart of a stock or currency draws yesterday's close as a dashed line. A symbol you found through search is priced on the way in; Add appears once it has a price.
+
+<p>
+<img src="assets/screenshots/portfolio.png" width="379" alt="the portfolio">
+<img src="assets/screenshots/holding-form.png" width="379" alt="the holding form">
+</p>
+
+**Portfolio** pins the totals first: what the holdings are worth, today's move, the total return where you recorded what you paid, and how many holdings could not be converted. Under it, one row per holding as `AAPL · 10 sh` with its value, today's P&L and total return. Holdings in other currencies are converted into your portfolio currency (USD unless you say otherwise) with the ECB's daily rates, shown as `£1,545.20 (≈$2,083.41)`. The holding form takes how much you hold and, if you like, the average price you paid per unit; Enter saves.
+
+<p>
+<img src="assets/screenshots/settings.png" width="379" alt="settings">
+<img src="assets/screenshots/settings-dropdown.png" width="379" alt="the strip mode dropdown">
+</p>
+
+**Settings** edits the six settings below in the panel. Save writes your shell.json entry once and the strip follows without a restart; Esc cancels.
+
+<p>
+<img src="assets/screenshots/sources.png" width="379" alt="data sources">
+<img src="assets/screenshots/rate-limit-banner.png" width="379" alt="the rate-limit banner">
+</p>
+
+**Data sources** says who prices what, what leaves your machine, and the disclaimers. Enter on a provider opens its site.
+
+The amber banner means a provider throttled the last fetch. The prices on screen are the last known ones, the bar shows a pause glyph next to them, and the banner stays until a fetch succeeds.
 
 | Key | Does |
 |---|---|
@@ -68,7 +95,7 @@ omarchy-shell costafot.markets status | jq         # what this bar shows: page, 
 
 ## Settings
 
-The Settings page in the panel (hub → Settings) edits them; Save writes them inline on the plugin's entry in `~/.config/omarchy/shell.json` and the strip follows at once. `omarchy bar set costafot.markets stripMax 5 --json` or editing that entry by hand does the same:
+The Settings page in the panel edits them; `omarchy bar set costafot.markets stripMax 5 --json` or editing the plugin's entry in `~/.config/omarchy/shell.json` by hand does the same.
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -107,13 +134,18 @@ Nothing else. No telemetry.
 
 Stock, index and currency prices come from an unofficial Yahoo Finance endpoint. It is free and needs no key, but Yahoo publishes no terms for it, does not promise it stays up, and can change or block it without notice. Prices are delayed. If it breaks, the affected rows show a dash and the last known price stays in the panel until it comes back; nothing else in the plugin depends on it. This plugin is not affiliated with Yahoo. Do not trade on it.
 
+## Uninstall
+
+```bash
+omarchy plugin remove costafot.markets
+rm -rf ~/.local/state/omarchy/costafot.markets
+```
+
 ## FAQ
 
 **Is this financial advice?** No. Prices are delayed and best effort.
 
 **Why is a row showing a dash?** The provider did not answer for it this time: an unknown symbol, a rate limit, or an outage. The last good price is kept and marked stale until the next successful refresh.
-
-**What is the amber banner?** A provider throttled the last fetch. The prices on screen are the last known ones, the bar shows a pause glyph next to them, and the banner stays until a fetch succeeds. `showRateLimitErrors: false` hides it.
 
 **The crypto 5Y chart only shows a year.** CoinGecko's keyless API serves one year of history; the chart says so under the plot. Stocks and currencies get the full five years from Yahoo.
 

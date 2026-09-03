@@ -120,13 +120,11 @@ omarchy restart shell        # after EVERY QML edit — inotify does not follow 
 journalctl -t omarchy-shell -f | grep -i markets
 omarchy-shell costafot.markets toggle; sleep 2; wtype -k Return; wtype doge; wtype -k Return   # keyboard path without touching the keyboard
 grim -g "1200,0 1360x800" -s 1 panel.png                                   # the panel opens under the widget, top right
-grim -g "1337,28 370x562" -s 1 assets/detail-chart.png                     # the panel alone, for the README (three favorites in the strip)
 omarchy-shell costafot.markets add TSLA stock; omarchy-shell costafot.markets page watchlist
 omarchy bar set costafot.markets strip favorites+portfolio   # patched into the running widget (verified 2026-09-03, no remount)
 omarchy-shell costafot.markets page settings                 # the form; page sources for the roster
 inotifywait -m -e close_write,moved_to ~/.config/omarchy/ | grep --line-buffered shell.json   # one MOVED_TO per Save
-grim -g "1401,31 380x636" -s 1 assets/settings.png          # the settings page, for the README (panel under the widget with favorites+portfolio in the strip)
-grim -g "1331,31 378x470" -s 1 assets/portfolio.png         # the portfolio page, for the README
+# README screenshots (assets/screenshots/, 2026-09-03): move the state dir aside, `refresh` to reseed, `portfolio set` three demo holdings, un-star SOL so the strip has three entries (more covers the centre clock), `page NAME` + wtype, `grim -s 1 -g "1150,0 898x900"`, then crop to the panel's border (srgb(137,180,250)) with `magick … +transparent … -format '%@'`; the strip is `-g "900,0 1148x40"`. assets/hero.png is the strip over hub + BTC detail + portfolio (`+smush 24`). Move the state dir back afterwards; no shell restart needed, the helper reads the dir on every run.
 ```
 
 **Wait ~8 s after `omarchy restart shell` and confirm the panel is open (screenshot) before `wtype`:** while the shell is still starting the IPC toggle does nothing and the keystrokes land in whatever has focus, which on 2026-09-03 was Costa's terminal. **Count `j` presses from where the cursor actually is:** `pop` restores the cursor to the row that was left, so after Escape from a page the hub is on Watchlist, not Search, and the detail page is on the row that opened the form. Three `j` from the wrong row landed on an attribution row on 2026-09-03: Enter on one opens the provider's site in the browser and closes the panel. Reach a page with `omarchy-shell costafot.markets page NAME` instead of counting. Undo test additions afterwards (`bin/markets favorite remove X; bin/markets watchlist remove X; bin/markets portfolio remove X`); the dev symlink means the live state dir is his real one.
