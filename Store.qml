@@ -179,7 +179,7 @@ QtObject {
     // Through sh, never direct: handing Quickshell a binary that cannot
     // start can take the whole shell down before a QML signal fires. sh
     // always starts; a failed exec is sh exiting 126/127.
-    proc.command = ["/bin/sh", "-c", 'exec "$0" "$@"', "python3",
+    proc.command = ["/bin/sh", "-c", 'exec "$0" "$@"', "/usr/bin/python3",
                     pluginDir + "/bin/markets", "--settings", settingsJson].concat(args)
     proc.running = true
   }
@@ -205,7 +205,7 @@ QtObject {
       if (tripwireFired) {
         // Already explained.
       } else if (!sawExit || exitCode === 126 || exitCode === 127) {
-        fail("internal", "python3 could not start (exit " + exitCode + ")")
+        fail("internal", "/usr/bin/python3 could not start (exit " + exitCode + ")")
       } else {
         fail("internal", "The markets helper produced no output (exit " + exitCode + ")")
       }

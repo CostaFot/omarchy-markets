@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/python3
 # Entry point for the omarchy-markets data helper. Everything lives in
 # marketslib/ next to this file; this shim only fixes sys.path so the plugin
 # folder can be cloned anywhere (or symlinked in during development).

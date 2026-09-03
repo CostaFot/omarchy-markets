@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.1
+
+- The helper is started as `/usr/bin/python3` with the plugin's absolute path, not `python3` looked up on the shell's PATH, and its shebang says the same. Nothing else changed. (The marketplace review blocks on PATH-resolved interpreters: a shadow `python3` earlier on the path would run with your authority before any of the helper's controls apply.)
+
 ## 1.0.0
 
 - First release. Nothing new in the panel or the helper since 0.7.0; this is the publishable cut: a `preview.png`, a screenshot of every page in `assets/screenshots/` and a README built around them, without its work-in-progress note, and the manifest no longer promising news. Keys for the optional keyed providers (Twelve Data, Finnhub) and the news page are deferred to later versions; the hub keeps its News placeholder.
