@@ -25,6 +25,7 @@ bin/marketslib/http.py       capped, redirect-refusing GET with 429 back-off
 bin/marketslib/models.py     Instrument / Quote / CandleSeries, categories, ranges, downsample
 bin/marketslib/state.py      state dir, atomic 0600 JSON writes
 tests/                       stdlib unittest; fakeserver.py + fixtures/ (captured live, trimmed), no real network
+PUBLISHING.md                the marketplace listing (#4546), the branch rule and the release procedure
 ```
 
 State dir: `${XDG_STATE_HOME:-~/.local/state}/omarchy/costafot.markets/` (`MARKETS_STATE_DIR` overrides). Files: `watchlist.json`, `quotes-cache.json`, `candles-cache.json`, `portfolio.json` (holdings in insertion order: symbol, name, category, quantity, cost_basis, provider_ids), `coin-ids.json` (CoinGecko symbol → id), `yahoo-meta.json` (Yahoo wire symbol → name, currency, type, exchange), `fx-rates.json` (`"GBP>USD": {rate, at}`, an hour's TTL, `rate: null` is a remembered "not convertible"), `rate-limit.json` (`{since}`, the rate-limit latch; absent when clear). QML never touches them.

@@ -10,6 +10,8 @@ This one is basically a port of another app I made a while back Powertoys on Win
 omarchy plugin add https://github.com/CostaFot/omarchy-markets --enable
 ```
 
+It is on the [Omarchy plugin marketplace](https://plugins.omarchy.org/plugin.html?id=costafot.markets), reviewed and verified at the listed commit.
+
 Setting it up from a coding agent? Point it at `~/.config/omarchy/plugins/costafot.markets/AGENTS.md`: every setting, IPC verb and helper command, and `bin/markets` answers in JSON.
 
 ## In the bar
