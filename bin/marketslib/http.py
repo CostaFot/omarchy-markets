@@ -52,6 +52,14 @@ def total_timeout():
     return _env_float("MARKETS_TOTAL_TIMEOUT", 20)
 
 
+def total_budget():
+    """Wall-clock budget for the whole process (cli.main arms it as an
+    alarm); 0 disables. The store passes the same number in the
+    environment and kills the helper a little after it, so the JSON
+    answer is the normal path and the kill is the fallback."""
+    return max(0.0, _env_float("MARKETS_TOTAL_BUDGET", 90))
+
+
 def backoff_scale():
     """Tests set MARKETS_BACKOFF_SCALE=0 so the 1s/2s waits vanish."""
     return _env_float("MARKETS_BACKOFF_SCALE", 1)

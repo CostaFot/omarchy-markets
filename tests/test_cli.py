@@ -5,11 +5,12 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 import _paths  # noqa: F401
 from _paths import ROOT
-from fakeserver import FakeServer, _Everything, coingecko_routes, frankfurter_routes, yahoo_routes
+from fakeserver import FakeServer, _Everything, coingecko_routes, frankfurter_routes, hanging, yahoo_routes
 
 BIN = os.path.join(ROOT, "bin", "markets")
 
@@ -56,6 +57,27 @@ class Cli(unittest.TestCase):
     def test_bad_settings_json_is_bad_args(self):
         doc = self.run_cli("--settings", "{nope", "status")
         self.assertEqual(doc["error"]["code"], "bad_args")
+
+    def test_process_budget_answers_a_timeout_document(self):
+        # A provider that never answers: the per-request bounds are raised
+        # above the budget, so only the whole-process alarm can end the run.
+        self.server.routes = _Everything(hanging)
+        env = dict(self.env, MARKETS_TOTAL_BUDGET="1", MARKETS_SOCKET_TIMEOUT="30", MARKETS_TOTAL_TIMEOUT="30")
+        started = time.monotonic()
+        doc = self.run_cli("snapshot", "--max-age", "0", env=env)
+        self.assertLess(time.monotonic() - started, 10)
+        self.assertFalse(doc["ok"])
+        self.assertEqual(doc["error"]["code"], "timeout")
+        self.assertIn("ran out of time (1 s)", doc["error"]["message"])
+        self.assertEqual(doc["command"], "snapshot")
+        # Whatever was upserted before the alarm is on disk: the state dir
+        # was flushed, not abandoned (the seed at least).
+        self.assertTrue(os.path.exists(os.path.join(self.tmp.name, "watchlist.json")))
+        # A zero budget disarms the alarm; the request bounds end this one.
+        env = dict(self.env, MARKETS_TOTAL_BUDGET="0", MARKETS_SOCKET_TIMEOUT="1", MARKETS_TOTAL_TIMEOUT="1")
+        doc = self.run_cli("quotes", "BTC", env=env)
+        self.assertFalse(doc["quotes"][0]["valid"])
+        self.assertNotEqual(doc["error"]["code"], "timeout")
 
     def test_internal_failures_are_reported_not_raised(self):
         blocker = os.path.join(self.tmp.name, "file-not-dir")

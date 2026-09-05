@@ -3,6 +3,7 @@
 import json
 import os
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlsplit
 
@@ -84,6 +85,12 @@ class FakeServer:
 
     def __exit__(self, *exc):
         self.stop()
+
+
+def hanging(query, path):
+    """A request that never answers: sleeps past every bound the helper has."""
+    time.sleep(3600)
+    return 200, {}, b"{}"
 
 
 class _Everything(dict):
@@ -169,6 +176,7 @@ def frankfurter_routes(server):
 if __name__ == "__main__":
     # A standalone server for trying the widget by hand:
     #   python3 tests/fakeserver.py --mode 429      # every request is throttled
+    #   python3 tests/fakeserver.py --mode hang     # every request stalls (the helper's deadline)
     #   python3 tests/fakeserver.py --mode ok       # the recorded fixtures
     # then point the helper at it:
     #   MARKETS_COINGECKO_URL=http://127.0.0.1:PORT MARKETS_YAHOO_URL=http://127.0.0.1:PORT \
@@ -177,7 +185,7 @@ if __name__ == "__main__":
     import signal
 
     parser = argparse.ArgumentParser(description="Serve the recorded fixtures, or answer 429 to everything.")
-    parser.add_argument("--mode", choices=("ok", "429"), default="ok")
+    parser.add_argument("--mode", choices=("ok", "429", "hang"), default="ok")
     parser.add_argument("--retry-after", type=int, default=60,
                         help="Retry-After header in 429 mode; above 8 the helper gives up at once")
     opts = parser.parse_args()
@@ -187,6 +195,8 @@ if __name__ == "__main__":
             return 429, {"Retry-After": str(opts.retry_after)}, b'{"status":{"error_message":"throttled"}}'
         srv.handler("*", throttled)
         srv.routes = _Everything(throttled)
+    elif opts.mode == "hang":
+        srv.routes = _Everything(hanging)
     else:
         frankfurter_routes(yahoo_routes(coingecko_routes(srv)))
     srv.start()

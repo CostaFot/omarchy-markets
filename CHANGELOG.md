@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- A deadline for the whole helper run, the one remark in the marketplace's security review of 1.0.1. The helper arms an alarm for `MARKETS_TOTAL_BUDGET` seconds (90 by default; the store passes the same number) and answers a `timeout` document when it fires, flushing what the run had fetched so the next poll continues from there; the strip pauses on it like on any error, the prices stay. The widget sends SIGTERM ten seconds after the budget, then SIGKILL five seconds later, for a helper stuck where Python's signal handler cannot run, and reports that as a timeout too. Before, a stuck helper held the store, and every later request behind it, forever. `tests/fakeserver.py --mode hang` stalls every request for trying it by hand.
+- New error code `timeout` in the envelope.
+
 ## 1.0.1
 
 - The helper is started as `/usr/bin/python3` with the plugin's absolute path, not `python3` looked up on the shell's PATH, and its shebang says the same. Nothing else changed. (The marketplace review blocks on PATH-resolved interpreters: a shadow `python3` earlier on the path would run with your authority before any of the helper's controls apply.)

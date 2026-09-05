@@ -57,8 +57,9 @@ total time and retries, honours `Retry-After` and redacts key parameters
 from debug output; provider URLs are fixed HTTPS with encoded components;
 keys travel in headers, never argv or URLs; every QML `Text` is
 `Text.PlainText`. The one remark was the missing whole-process deadline
-around the helper (a hardening concern, not a blocker); it is in
-`IDEAS.md`. Disclose network use in the maintainer notes rather than let
+around the helper (a hardening concern, not a blocker); `next` has it
+since 2026-09-05 (the helper's alarm plus the store's SIGTERM/SIGKILL),
+so the next Verify issue can point at it. Disclose network use in the maintainer notes rather than let
 the baseline find it: Yahoo (unofficial), CoinGecko, Frankfurter, all
 keyless, and the Settings page's writes to the plugin's own shell.json
 entry.

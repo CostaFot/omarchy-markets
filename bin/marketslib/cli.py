@@ -15,7 +15,9 @@ own payload. See AGENTS.md for the per-command shapes.
 
 import json
 import os
+import signal
 import sys
+import threading
 import time
 
 from . import fmt, http, plugin_version
@@ -41,6 +43,37 @@ USAGE = (
 
 class BadArgs(Exception):
     pass
+
+
+class Deadline(BaseException):
+    """The process budget ran out (http.total_budget). A BaseException so no
+    provider's `except Exception` can swallow it on the way up."""
+
+
+def _arm_deadline():
+    """Arm the whole-process alarm. Returns the disarm function. The handler
+    only runs between bytecodes on the main thread, so a blocking socket
+    read is interrupted at its own timeout and a stuck C call (a resolver
+    that never returns) is not: that case is the store's kill."""
+    budget = http.total_budget()
+    if budget <= 0 or not hasattr(signal, "SIGALRM") or threading.current_thread() is not threading.main_thread():
+        return lambda: None
+
+    def on_alarm(signum, frame):
+        raise Deadline(budget)
+
+    previous = signal.signal(signal.SIGALRM, on_alarm)
+    signal.setitimer(signal.ITIMER_REAL, budget)
+
+    def disarm():
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
+
+    return disarm
+
+
+def _timeout_error(budget):
+    return {"code": "timeout", "message": f"The markets helper ran out of time ({budget:.0f} s); the prices shown are the last it had"}
 
 
 def envelope(command, ok=True, error=None, **payload):
@@ -358,6 +391,10 @@ def dispatch(argv):
         raise
     except http.FetchError as e:
         return _finish(repo, command, {}, ok=False, error=e.to_dict())
+    except Deadline as e:
+        # What the run managed to fetch is in the caches (upserted per quote),
+        # so flushing here means the next poll starts where this one stopped.
+        return _finish(repo, command, {}, ok=False, error=_timeout_error(e.args[0]))
     return _finish(repo, command, payload)
 
 
@@ -376,6 +413,7 @@ def main(argv):
     except (AttributeError, ValueError):
         pass
     command = "?"
+    disarm = _arm_deadline()
     try:
         # Best-effort command name for the error envelope (skip a --settings value).
         for i, a in enumerate(argv):
@@ -389,11 +427,17 @@ def main(argv):
         doc = dispatch(argv)
     except BadArgs as e:
         doc = envelope(command, ok=False, error={"code": "bad_args", "message": str(e)})
+    except Deadline as e:
+        # Fired outside dispatch's own handler (before the repository existed,
+        # or during its flush): still a document, still exit 0.
+        doc = envelope(command, ok=False, error=_timeout_error(e.args[0]))
     except BaseException as e:  # noqa: BLE001 — the never-crash rule
         doc = envelope(command, ok=False, error={"code": "internal", "message": f"{type(e).__name__}: {e}"})
         if os.environ.get("MARKETS_DEBUG"):
             import traceback
 
             traceback.print_exc()
+    finally:
+        disarm()
     emit(doc)
     return 0

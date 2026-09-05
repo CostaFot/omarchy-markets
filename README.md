@@ -146,7 +146,7 @@ The Settings page in the panel edits them; `omarchy bar set costafot.markets str
 
 ## The helper
 
-Everything that touches the network or the disk is `bin/markets`, a Python 3 script with no dependencies. The widget runs it and draws what comes back. 
+Everything that touches the network or the disk is `bin/markets`, a Python 3 script with no dependencies. The widget runs it and draws what comes back. Every run has a deadline: each request is capped at 20 seconds and 1 MiB, the whole run at 90 seconds, after which the helper answers with a timeout and the widget shows the last prices it had, paused. A helper that cannot even answer is stopped by the widget ten seconds later.
 
 Try it it yourself:
 

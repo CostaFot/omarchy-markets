@@ -146,8 +146,20 @@ QtObject {
   property int exitCode: 0
   property bool sawExit: false
   property bool tripwireFired: false
+  property bool timedOut: false
   property var pendingRun: null
   property var currentRun: null
+
+  // The helper's whole-process budget in seconds (MARKETS_TOTAL_BUDGET):
+  // its own alarm answers a `timeout` document at this point, and this
+  // store sends SIGTERM `killGraceMs` later, then SIGKILL, for a helper
+  // stuck somewhere Python's signal handler cannot run (a resolver that
+  // never returns). A healthy run answers in a second or two; the budget
+  // covers a first run's chart call per new Yahoo symbol at the helper's
+  // 20 s per request. Until it expires every later request queues behind
+  // the stuck one (last command wins), as before.
+  readonly property int helperBudgetSeconds: 90
+  readonly property int killGraceMs: 10000
 
   // Untracked symbols a detail page is showing, as "SYM:category". Every
   // snapshot prices them too, so the hero does not blank on the next poll;
@@ -175,19 +187,34 @@ QtObject {
     capturedText = ""
     sawExit = false
     tripwireFired = false
+    timedOut = false
     exitCode = 0
     // Through sh, never direct: handing Quickshell a binary that cannot
     // start can take the whole shell down before a QML signal fires. sh
     // always starts; a failed exec is sh exiting 126/127.
     proc.command = ["/bin/sh", "-c", 'exec "$0" "$@"', "/usr/bin/python3",
                     pluginDir + "/bin/markets", "--settings", settingsJson].concat(args)
+    // The helper arms its own alarm from this; keep the two in step.
+    proc.environment = { MARKETS_TOTAL_BUDGET: String(helperBudgetSeconds) }
     proc.running = true
+    killTimer.restart()
   }
 
   function maybeFinalize() {
     if (!collectorDone || !processDone) return
     exitFallback.stop()
+    killTimer.stop()
+    killFallback.stop()
     finalizeRun()
+  }
+
+  // The budget is up and the helper has not answered for itself: SIGTERM,
+  // and SIGKILL if it is still there after `killFallback`. The exit lands
+  // through the usual signals and finalizeRun reports the timeout.
+  function killHelper(sig) {
+    if (!proc.running) return
+    timedOut = true
+    proc.signal(sig)
   }
 
   function fail(code, message) {
@@ -204,6 +231,8 @@ QtObject {
     if (text === "") {
       if (tripwireFired) {
         // Already explained.
+      } else if (timedOut) {
+        fail("timeout", "The markets helper did not answer within " + (helperBudgetSeconds + killGraceMs / 1000) + " s and was stopped")
       } else if (!sawExit || exitCode === 126 || exitCode === 127) {
         fail("internal", "/usr/bin/python3 could not start (exit " + exitCode + ")")
       } else {
@@ -307,6 +336,23 @@ QtObject {
       store.collectorDone = true
       store.maybeFinalize()
     }
+  }
+
+  property Timer killTimer: Timer {
+    id: killTimer
+    interval: store.helperBudgetSeconds * 1000 + store.killGraceMs
+    repeat: false
+    onTriggered: {
+      store.killHelper(15)  // SIGTERM
+      killFallback.restart()
+    }
+  }
+
+  property Timer killFallback: Timer {
+    id: killFallback
+    interval: 5000
+    repeat: false
+    onTriggered: store.killHelper(9)  // SIGKILL
   }
 
   // The poll. Every bar instance has one; `--max-age 30` makes all but the
