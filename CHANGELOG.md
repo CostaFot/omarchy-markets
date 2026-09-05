@@ -4,6 +4,7 @@
 
 - A deadline for the whole helper run, the one remark in the marketplace's security review of 1.0.1. The helper arms an alarm for `MARKETS_TOTAL_BUDGET` seconds (90 by default; the store passes the same number) and answers a `timeout` document when it fires, flushing what the run had fetched so the next poll continues from there; the strip pauses on it like on any error, the prices stay. The widget sends SIGTERM ten seconds after the budget, then SIGKILL five seconds later, for a helper stuck where Python's signal handler cannot run, and reports that as a timeout too. Before, a stuck helper held the store, and every later request behind it, forever. `tests/fakeserver.py --mode hang` stalls every request for trying it by hand.
 - New error code `timeout` in the envelope.
+- The bar shows the widget's own mark again when the strip is empty, and the pause mark after stale prices. Both glyphs had been empty strings since 0.2.0: the private-use Nerd Font characters were stripped when the file was written, so an empty strip (no favorites, no holdings, or `stripMax` too small) painted nothing at all and a stale strip ended in two spaces. They are JS escapes now and a test pins them.
 
 ## 1.0.1
 

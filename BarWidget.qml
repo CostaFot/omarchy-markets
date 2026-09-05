@@ -15,7 +15,11 @@ BarWidget {
 
   // nf-fa-line_chart: the class glyph, shown alone while loading, on
   // vertical bars, and when the bar has no room for a single entry.
-  readonly property string glyph: ""
+  // Both are written as escapes: a literal PUA glyph is stripped by some
+  // editors and tools, which left these strings empty from 0.2.0 to 1.0.1.
+  readonly property string glyph: "\uf201"
+  // nf-fa-pause, padded: the stale mark after the last price.
+  readonly property string pauseMark: " \uf04c "
 
   // Untyped on purpose: naming the type would collide with qs.Ui's Panel base.
   readonly property var marketPanel: panelLoader.item
@@ -193,7 +197,7 @@ BarWidget {
     var sepW = barFm.advanceWidth(separator)
     var markerW = sepW + barFm.advanceWidth("…")
     var pad = Style.spaceReal(8.5) * 2
-    var staleW = root.stripStale ? barFm.advanceWidth("  ") : 0
+    var staleW = root.stripStale ? barFm.advanceWidth(pauseMark) : 0
     var used = pad + staleW
     var fit = 0
     for (var i = 0; i < n; i++) {
@@ -226,7 +230,7 @@ BarWidget {
     }
     if (shown > 0 && truncated) out.push({ text: separator + "…", color: Util.alpha(baseFg, 0.35) })
     // nf-fa-pause: the prices keep their colours, staleness gets its own mark.
-    if (shown > 0 && root.stripStale) out.push({ text: "  ", color: dimFg })
+    if (shown > 0 && root.stripStale) out.push({ text: pauseMark, color: dimFg })
     return out
   }
 

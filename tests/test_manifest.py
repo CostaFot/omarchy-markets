@@ -105,5 +105,25 @@ class ManifestMatchesThePanel(unittest.TestCase):
             self.assertIn(provider.attribution["label"], self.panel, provider.id)
 
 
+class GlyphsSurviveEditing(unittest.TestCase):
+    """Nerd Font glyphs are private-use characters; some editors and tools
+    strip them and leave an empty string behind with no error. The strip's
+    class glyph and pause mark were empty from 0.2.0 to 1.0.1 that way."""
+
+    PUA = re.compile("[\ue000-\uf8ff]")
+
+    def test_panel_keeps_its_literal_glyphs(self):
+        self.assertEqual(len(self.PUA.findall(read("Panel.qml"))), 9)
+
+    def test_bar_glyphs_are_escapes_and_not_empty(self):
+        bar = read("BarWidget.qml")
+        glyph = re.search(r'property string glyph: "([^"]*)"', bar)
+        pause = re.search(r'property string pauseMark: "([^"]*)"', bar)
+        self.assertEqual(glyph.group(1), "\\uf201")
+        self.assertEqual(pause.group(1), " \\uf04c ")
+        self.assertIn('advanceWidth(pauseMark)', bar)
+        self.assertIn('text: pauseMark', bar)
+
+
 if __name__ == "__main__":
     unittest.main()
