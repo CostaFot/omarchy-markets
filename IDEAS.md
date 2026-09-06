@@ -1,5 +1,7 @@
 # Ideas
 
+Every live idea below is an issue on the board (https://www.costafotiadis.com/board/, COS-45 to COS-63, plus COS-25, imported 2026-09-06). A new idea gets an issue when it is added here; a shipped one gets its issue completed. Dead ideas have none.
+
 Backlog, not commitments. Dead ideas stay here marked as such so they are not re-pitched.
 
 - API keys through `secret-tool` (`key set|clear|status`, the secret on stdin, never argv or shell.json) with the optional keyed providers Twelve Data and Finnhub quotes; the keys ship with their first consumer. Session 8 of the plan file, deferred past 1.0.0 by Costa on 2026-09-03.
