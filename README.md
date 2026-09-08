@@ -26,7 +26,7 @@ Out of the box the favorites are BTC, ETH and SOL just for laughs.
 
 When the bar runs out of room the strip drops entries from the end, then collapses to a single glyph; hover it for the full text. 
 
-* Left click opens the panel
+* Left click opens the panel, right click [the window](#the-window) (with *Open as a window* on, the other way round)
 * Middle click refreshes.
 
 ## The panel
@@ -90,7 +90,7 @@ The holding form takes how much you hold and, if you like, the average price you
 <img src="assets/screenshots/settings-dropdown.png" width="300" alt="the strip mode dropdown">
 </p>
 
-**Settings** edits the six settings below in the panel.
+**Settings** edits the settings below in the panel.
 
 * Save writes your shell.json entry once and the strip follows without a restart
 * Esc cancels
@@ -123,13 +123,36 @@ The amber banner means a provider throttled the last fetch.
 From a keybinding or a script:
 
 ```bash
-omarchy-shell costafot.markets toggle              # also open, close, show, hide
+omarchy-shell costafot.markets toggle              # also open, close, show, hide (the window instead, with openAsWindow on)
+omarchy-shell costafot.markets window toggle       # the window; open, close, or a page name (window portfolio)
 omarchy-shell costafot.markets refresh
 omarchy-shell costafot.markets page watchlist      # hub, search, watchlist, favorites, portfolio, sources, settings
 omarchy-shell costafot.markets add DOGE crypto     # stock, crypto or currency
 omarchy-shell costafot.markets favorite DOGE       # toggles; NEW:crypto for a symbol not yet tracked
-omarchy-shell costafot.markets status | jq         # what this bar shows: page, staleness, strip, chart
+omarchy-shell costafot.markets status | jq         # what the bar shows: page, staleness, strip, chart, the window
 ```
+
+## The window
+
+<img src="assets/screenshots/window.png" width="300" alt="the hub as its own window, floated by the rule below">
+
+The same pages as a normal window, for when they should stay put: the portfolio on its own workspace, a chart next to the terminal. The popup stays the one-key surface unless you say otherwise.
+
+* `omarchy-shell costafot.markets window toggle` opens and closes it. `open`, `close` or a page name (`window portfolio`) work too, and a page name moves an open window there
+* it is a Wayland toplevel titled `Markets`, class `org.quickshell`, so Hyprland tiles or floats it like any app
+* the same keys as the popup. Escape on the hub or closing the window closes it
+* the popup and the window can be open at once and show the same data; a Save in either writes the same settings
+
+Prefer the window as the one-key surface? Turn *Open as a window* on (the last row of the Settings page). The glyph's left click and the `open`, `toggle` and `page` verbs then open the window, and right click opens the popup. The hub's last row in the popup, *Open as a window*, jumps across too.
+
+A keybinding in `~/.config/hypr/bindings.lua` and a rule in `~/.config/hypr/hyprland.lua` that floats it at the popup's size:
+
+```lua
+o.bind("SUPER + ALT + M", "Markets window", "omarchy-shell costafot.markets window toggle")
+o.window({ class = "^(org.quickshell)$", title = "^(Markets)$" }, { float = true, size = { 400, 760 } })
+```
+
+The shell's generic `omarchy-shell shell toggle costafot.markets` opens the window as well now; the plugin's own `toggle` above is the one that follows the setting.
 
 ## Settings
 
@@ -143,6 +166,7 @@ The Settings page in the panel edits them; `omarchy bar set costafot.markets str
 | `stripMax` | `6` | Most entries the strip lists before trimming for width |
 | `portfolioCurrency` | `"USD"` | Currency for the portfolio totals; other holdings are converted into it |
 | `showRateLimitErrors` | `true` | Off hides the amber rate-limit banner in the panel |
+| `openAsWindow` | `false` | The glyph's left click and the `open`, `toggle` and `page` verbs open the window instead of the popup; right click opens the popup then |
 
 ## The helper
 

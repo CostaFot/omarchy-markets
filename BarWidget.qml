@@ -1,14 +1,17 @@
 pragma ComponentBehavior: Bound
 import QtQuick
 import Quickshell
-import Quickshell.Io
 import qs.Commons
 import qs.Ui
 
 // Bar widget for Markets: the favorites strip as "SYM $price ▲ +x%" runs,
-// values tinted by direction. Click opens the watchlist panel (Panel.qml,
-// which owns the data); middle click refreshes. The strip trims itself from
-// the end to fit the room this bar can give it, down to a lone glyph.
+// values tinted by direction. Left click opens the popup (Panel.qml, whose
+// pages own the data), right click the window (Window.qml), or the other
+// way round with the Open as a window setting on; middle click refreshes.
+// The strip trims itself from the end to fit the room this bar can give it,
+// down to a lone glyph. The plugin's IPC target lives in Window.qml (one
+// per shell, where this widget exists once per monitor); it reaches the
+// widget on the focused monitor through the bar.
 BarWidget {
   id: root
   moduleName: "costafot.markets"
@@ -33,6 +36,19 @@ BarWidget {
   readonly property bool popoutSwitchClosing: marketPanel ? marketPanel.popoutSwitchClosing === true : false
   function closeForPopoutSwitch() { if (marketPanel) marketPanel.closeForPopoutSwitch() }
   function refresh() { if (marketPanel) marketPanel.refresh() }
+  // For the window root's `page`, `add` and `favorite` verbs.
+  function showPage(name) { if (marketPanel) marketPanel.showPage(name) }
+  function addSymbol(symbol, category) { if (marketPanel) marketPanel.addSymbol(symbol, category) }
+  function favoriteSymbol(spec) { if (marketPanel) marketPanel.favoriteSymbol(spec) }
+  // The page the popup shows, for `status`.
+  readonly property string page: marketPanel && marketPanel.page !== undefined ? String(marketPanel.page) : ""
+
+  // The `openAsWindow` setting swaps the two clicks; the shell owns the
+  // window (its summon, hide and toggle), this widget its own popup.
+  readonly property bool openAsWindow: root.setting("openAsWindow", false) === true
+  function toggleWindow() {
+    if (root.bar && root.bar.shell && typeof root.bar.shell.toggle === "function") root.bar.shell.toggle(moduleName, "")
+  }
 
   function injectPanel() {
     var target = marketPanel
@@ -57,36 +73,16 @@ BarWidget {
     }
   }
 
-  //   omarchy-shell costafot.markets toggle
-  //   omarchy-shell costafot.markets refresh
-  //   omarchy-shell costafot.markets page watchlist      # hub search watchlist favorites portfolio
-  //   omarchy-shell costafot.markets add DOGE crypto
-  //   omarchy-shell costafot.markets favorite DOGE       # toggles; DOGE:crypto for a new symbol
-  // `refresh` reaches every bar instance (one per monitor), not just the one
-  // that owns the IPC target. The mutations go through the helper like any
-  // panel action, so every instance sees them on its next poll.
-  IpcHandler {
-    target: "costafot.markets"
-    function open(): void { root.open() }
-    function close(): void { root.close() }
-    function show(): void { root.open() }
-    function hide(): void { root.close() }
-    function toggle(): void { root.togglePanel() }
-    function refresh(): void { root.broadcast("refresh") }
-    function page(name: string): void { if (root.marketPanel) root.marketPanel.showPage(name) }
-    function add(symbol: string, category: string): void { if (root.marketPanel) root.marketPanel.addSymbol(symbol, category) }
-    function favorite(symbol: string): void { if (root.marketPanel) root.marketPanel.favoriteSymbol(symbol) }
-    function status(): string { return root.statusJson() }
-  }
-
   //   omarchy-shell costafot.markets status | jq
-  // What this bar instance is showing, for a terminal. The helper's own
-  // `bin/markets status` covers the data side (providers, state dir).
+  // What this bar instance is showing, for a terminal; the window root's
+  // `status` verb takes it from the widget on the focused monitor and adds
+  // the window. The helper's own `bin/markets status` covers the data side
+  // (providers, state dir).
   function statusJson() {
     var s = root.store
     var doc = {
       opened: root.opened,
-      page: root.marketPanel ? root.marketPanel.page : "",
+      page: root.page,
       has_data: root.hasData,
       busy: s ? s.busy : false,
       stale: s ? s.stale : false,
@@ -282,7 +278,8 @@ BarWidget {
 
     onPressed: function(b) {
       if (b === Qt.MiddleButton) root.refresh()
-      else root.togglePanel()
+      else if ((b === Qt.RightButton) === root.openAsWindow) root.togglePanel()
+      else root.toggleWindow()
     }
 
     Row {
