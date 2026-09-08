@@ -1,8 +1,7 @@
 """manifest.json is the only place the settings are typed and bounded (the
-shell does not render its schema; the Settings page (Pages.qml) and the
-helper repeat the lists by hand). These tests tie the three copies together
-so a drift between them fails here, not in a user's bar, and pin the window
-entry point to the manifest."""
+shell does not render its schema; the Settings page and the helper repeat
+the lists by hand). These tests tie the three copies together so a drift
+between them fails here, not in a user's bar."""
 
 import json
 import os
@@ -23,8 +22,6 @@ WIDGET = MANIFEST["barWidget"]
 SCHEMA = {e["key"]: e for e in WIDGET["schema"]}
 # Store.qml's helperSettingKeys: what the panel sends the helper.
 HELPER_KEYS = ["strip", "stripShowPrice", "stripMax", "portfolioCurrency", "showRateLimitErrors"]
-# QML-only: the poll timer and which surface the one-key verbs open.
-QML_ONLY_KEYS = {"refreshMinutes", "openAsWindow"}
 
 
 def read(name):
@@ -43,10 +40,7 @@ class ManifestMatchesTheHelper(unittest.TestCase):
     def test_schema_covers_every_key_the_store_sends(self):
         self.assertTrue(set(HELPER_KEYS) <= set(SCHEMA), set(HELPER_KEYS) - set(SCHEMA))
         self.assertEqual(set(HELPER_KEYS), set(repo.SETTING_DEFAULTS))
-        self.assertEqual(set(SCHEMA) - set(HELPER_KEYS), QML_ONLY_KEYS)
-        store = read("Store.qml")
-        m = re.search(r"helperSettingKeys:\s*\[(.*?)\]", store)
-        self.assertEqual(re.findall(r'"(\w+)"', m.group(1)), HELPER_KEYS)
+        self.assertEqual(set(SCHEMA) - set(HELPER_KEYS), {"refreshMinutes"})
 
     def test_currency_options_are_the_codes_fmt_prints(self):
         options = SCHEMA["portfolioCurrency"]["options"]
@@ -75,22 +69,21 @@ class ManifestMatchesTheHelper(unittest.TestCase):
         self.assertEqual((SCHEMA["refreshMinutes"]["min"], SCHEMA["refreshMinutes"]["max"]), (0, 120))
         for key in ("stripMax", "refreshMinutes"):
             self.assertEqual(SCHEMA[key]["type"], "integer")
-        for key in ("stripShowPrice", "showRateLimitErrors", "openAsWindow"):
+        for key in ("stripShowPrice", "showRateLimitErrors"):
             self.assertEqual(SCHEMA[key]["type"], "boolean")
         for key in ("strip", "portfolioCurrency"):
             self.assertEqual(SCHEMA[key]["type"], "enum")
 
 
 class ManifestMatchesThePanel(unittest.TestCase):
-    """Pages.qml (the content both hosts show) repeats the defaults, the
-    options and the provider links."""
+    """Panel.qml repeats the defaults, the options and the provider links."""
 
     def setUp(self):
-        self.panel = read("Pages.qml")
+        self.panel = read("Panel.qml")
 
     def test_panel_defaults_are_the_manifest_defaults(self):
         m = re.search(r"settingsDefaults:\s*\(\{(.*?)\}\)", self.panel, re.S)
-        self.assertIsNotNone(m, "Pages.qml has no settingsDefaults literal")
+        self.assertIsNotNone(m, "Panel.qml has no settingsDefaults literal")
         literal = "{" + re.sub(r"(\w+)\s*:", r'"\1":', m.group(1)) + "}"
         self.assertEqual(json.loads(literal), WIDGET["defaults"])
 
@@ -111,56 +104,6 @@ class ManifestMatchesThePanel(unittest.TestCase):
             self.assertIn(provider.attribution["url"], self.panel, provider.id)
             self.assertIn(provider.attribution["label"], self.panel, provider.id)
 
-    def test_open_as_window_is_wired(self):
-        # The setting the manifest declares is on the form, in the save set,
-        # and drives the bar glyph's clicks and the window root's verbs.
-        self.assertIn("id: openAsWindowToggle", self.panel)
-        self.assertIn("openAsWindow: pendingOpenAsWindow", self.panel)
-        self.assertIn('action: "openwindow"', self.panel)
-        bar = read("BarWidget.qml")
-        self.assertIn('root.setting("openAsWindow", false)', bar)
-        self.assertIn("(b === Qt.RightButton) === root.openAsWindow", bar)
-        self.assertIn("openAsWindow ? openWindow", read("Window.qml"))
-
-
-class TheWindowIsThePanelKind(unittest.TestCase):
-    """The pages as a toplevel: the `panel` kind with Window.qml as its entry
-    point, kept loaded and hidden until summoned. Panel.qml is the popup
-    wrapper and Pages.qml the content, so no page exists twice."""
-
-    def test_manifest_declares_the_window(self):
-        self.assertEqual(MANIFEST["kinds"], ["bar-widget", "panel"])
-        self.assertIs(MANIFEST["keepLoaded"], True)
-        self.assertEqual(MANIFEST["entryPoints"], {"barWidget": "BarWidget.qml", "panel": "Window.qml"})
-        for entry in MANIFEST["entryPoints"].values():
-            self.assertTrue(os.path.exists(os.path.join(ROOT, entry)), entry)
-
-    def test_the_window_starts_hidden_and_holds_the_ipc_target(self):
-        window = read("Window.qml")
-        self.assertIn("FloatingWindow {", window)
-        self.assertIn('title: "Markets"', window)
-        self.assertIn("visible: false", window)  # keepLoaded would show it at start
-        self.assertIn("Pages {", window)
-        self.assertEqual(window.count('target: "costafot.markets"'), 1)
-        self.assertNotIn("IpcHandler", read("BarWidget.qml"))
-        self.assertNotIn("IpcHandler", read("Panel.qml"))
-        for verb in ("open", "show", "close", "hide", "toggle", "refresh", "status"):
-            self.assertIn(f"function {verb}(): string", window, verb)
-        for verb in ("page(name: string)", "window(mode: string)", "add(symbol: string, category: string)", "favorite(symbol: string)"):
-            self.assertIn(f"function {verb}: string", window, verb)
-
-    def test_the_pages_live_once(self):
-        pages = read("Pages.qml")
-        self.assertTrue(pages.startswith("pragma ComponentBehavior: Bound"))
-        for fn in ("hubRows", "detailRows", "portfolioRows", "sourcesRows", "saveSettings", "saveHolding"):
-            self.assertIn(f"function {fn}(", pages, fn)
-            self.assertNotIn(f"function {fn}(", read("Panel.qml"), fn)
-            self.assertNotIn(f"function {fn}(", read("Window.qml"), fn)
-        self.assertIn("Pages {", read("Panel.qml"))
-        # Nothing in the content reaches the bar: both hosts hand it what it needs.
-        self.assertNotIn("bar.", pages)
-        self.assertNotIn("switchPanel", pages)
-
 
 class GlyphsSurviveEditing(unittest.TestCase):
     """Nerd Font glyphs are private-use characters; some editors and tools
@@ -170,11 +113,7 @@ class GlyphsSurviveEditing(unittest.TestCase):
     PUA = re.compile("[\ue000-\uf8ff]")
 
     def test_panel_keeps_its_literal_glyphs(self):
-        self.assertEqual(len(self.PUA.findall(read("Pages.qml"))), 9)
-        # The hosts and the newer rows use escapes; a literal here is a stray.
-        for name in ("Panel.qml", "Window.qml", "BarWidget.qml"):
-            self.assertEqual(self.PUA.findall(read(name)), [], name)
-        self.assertIn('icon: "\\uf2d0", label: "Open as a window"', read("Pages.qml"))
+        self.assertEqual(len(self.PUA.findall(read("Panel.qml"))), 9)
 
     def test_bar_glyphs_are_escapes_and_not_empty(self):
         bar = read("BarWidget.qml")

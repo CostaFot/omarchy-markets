@@ -7,17 +7,14 @@
   "license": "MIT",
   "description": "Stocks, crypto and currencies in the bar: a live ticker strip plus a keyboard-driven panel with search, watchlist, favorites, portfolio and charts.",
   "kinds": [
-    "bar-widget",
-    "panel"
+    "bar-widget"
   ],
-  "keepLoaded": true,
   "entryPoints": {
-    "barWidget": "BarWidget.qml",
-    "panel": "Window.qml"
+    "barWidget": "BarWidget.qml"
   },
   "barWidget": {
     "displayName": "Markets",
-    "description": "Live prices for the instruments you follow. Left click for the panel, right click for the window; the Open as a window setting swaps them.",
+    "description": "Live prices for the instruments you follow. Click for the panel.",
     "category": "Info",
     "aliases": [
       "markets",
@@ -33,8 +30,7 @@
       "stripMax": 6,
       "refreshMinutes": 10,
       "portfolioCurrency": "USD",
-      "showRateLimitErrors": true,
-      "openAsWindow": false
+      "showRateLimitErrors": true
     },
     "schema": [
       {
@@ -112,13 +108,6 @@
         "label": "Show rate-limit warnings",
         "description": "Show a banner when prices are stale from provider rate-limiting.",
         "defaultValue": true
-      },
-      {
-        "key": "openAsWindow",
-        "type": "boolean",
-        "label": "Open as a window",
-        "description": "The glyph's left click and the open, toggle and page verbs open the window instead of the popup; right click opens the popup then.",
-        "defaultValue": false
       }
     ]
   }
